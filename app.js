@@ -5,12 +5,12 @@
   const ctx = canvas.getContext('2d');
   const sizes = { landscape: [1800, 1200], square: [1600, 1600], portrait: [1200, 1800], wide: [1920, 1080] };
   const freshPanel = () => ({ asset: null, zoom: 1, x: .5, y: .5, effect: 'none', strength: .6 });
-  let state = { layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: [freshPanel(), freshPanel()], objects: [] };
+  let state = { photoCount: 2, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
   let activePhoto = 0, activeTab = 'layout', selectedObject = null;
   let undoStack = [], redoStack = [], editBefore = null, gestureBefore = null;
   let savedUrl = null, savedBlob = null, savedFile = null, loading = 0, exporting = false;
   let nextId = 1, toastTimer, raf = 0;
-  const assets = new Map(), pointers = new Map(), loadSequence = [0, 0];
+  const assets = new Map(), pointers = new Map(), loadSequence = [0, 0, 0, 0];
   let gesture = null;
   const copy = value => JSON.parse(JSON.stringify(value));
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
@@ -53,28 +53,39 @@
   }
   function selectPhoto(index) { finishEdit(); activePhoto = index; update(); }
   function sync() {
+    activePhoto = Math.min(activePhoto, state.photoCount - 1);
     const p = state.panels[activePhoto], o = object();
     $('undo').disabled = !undoStack.length;
     $('redo').disabled = !redoStack.length;
-    const count = state.panels.filter(p => p.asset).length;
-    $('export').disabled = count < 2 || loading > 0 || exporting;
+    activePhoto = Math.min(activePhoto, state.photoCount - 1);
+    const count = state.panels.slice(0, state.photoCount).filter(p => p.asset).length;
+    $('export').disabled = count < state.photoCount || loading > 0 || exporting;
     $('export').textContent = exporting ? '作成中…' : '画像を保存 ↗';
-    $('saveSummary').textContent = loading ? '画像を読み込み中…' : count === 2 ? 'ふたつのシーン、準備OK。' : count === 1 ? 'あと1枚、画像を選びましょう' : '画像を2枚選んでスタート';
+    $('saveSummary').textContent = loading ? '画像を読み込み中…' : count === state.photoCount ? `${state.photoCount}枚の画像、準備OK。` : `あと${state.photoCount - count}枚、画像を選びましょう`;
     $('sizeLabel').textContent = dimension().join(' × ');
-    $('canvasHint').textContent = count === 0 ? 'まずは画像を2枚選んでください' : activeTab === 'decor' ? '矢印・文字は指で動かせます' : '画像を指で移動・2本指で拡大';
+    $('canvasHint').textContent = count === 0 ? `画像を${state.photoCount}枚選んでください` : activeTab === 'decor' ? '矢印・文字は指で動かせます' : '画像を指で移動・2本指で拡大';
     canvas.classList.toggle('portrait', state.aspect === 'portrait');
     canvas.classList.toggle('square', state.aspect === 'square');
     state.panels.forEach((panel, i) => {
       const btn = $('upload' + i);
+      btn.hidden = i >= state.photoCount;
       btn.classList.toggle('active', i === activePhoto && count > 0);
       btn.querySelector('strong').textContent = panel.asset ? '画像を変更' : '画像を選ぶ';
       btn.querySelector('small').textContent = panel.asset ? '選択済み · タップで変更' : `${i + 1}枚目のシーン`;
       btn.querySelector('.plus').textContent = panel.asset ? '✓' : '＋';
     });
     document.querySelectorAll('[data-layout]').forEach(btn => { const active = btn.dataset.layout === state.layout; btn.classList.toggle('selected', active); btn.setAttribute('aria-pressed', active); });
-    document.querySelectorAll('[data-photo]').forEach(btn => btn.setAttribute('aria-pressed', Number(btn.dataset.photo) === activePhoto));
+    document.querySelectorAll('[data-photo]').forEach(btn => { btn.hidden = Number(btn.dataset.photo) >= state.photoCount; btn.setAttribute('aria-pressed', Number(btn.dataset.photo) === activePhoto); });
+    document.querySelectorAll('[data-count]').forEach(btn => btn.setAttribute('aria-pressed', Number(btn.dataset.count) === state.photoCount));
+    $('gridLayout').hidden = state.photoCount !== 4;
+    $('splitControls').hidden = state.photoCount !== 2;
+    $('equalHint').hidden = state.photoCount === 2;
+    $('swap').textContent = state.photoCount === 2 ? '画像を入れ替え ⇄' : '順番をずらす ↻';
+    $('backgroundOptions').hidden = state.backgroundStyle === 'solid';
+    $('gradientOptions').hidden = state.backgroundStyle !== 'gradient';
+    $('patternOptions').hidden = !['dots', 'stripes'].includes(state.backgroundStyle);
     document.querySelectorAll('[data-background]').forEach(btn => btn.setAttribute('aria-pressed', btn.dataset.background === state.background));
-    for (const [id, value] of Object.entries({ aspect: state.aspect, split: Math.round(state.split * 100), gap: state.gap, border: state.border, background: state.background, zoom: Math.round(p.zoom * 100), effect: p.effect, effectStrength: Math.round(p.strength * 100) })) $(id).value = value;
+    for (const [id, value] of Object.entries({ backgroundStyle: state.backgroundStyle, backgroundSecond: state.backgroundSecond, gradientDirection: state.gradientDirection, patternSize: state.patternSize, aspect: state.aspect, split: Math.round(state.split * 100), gap: state.gap, border: state.border, background: state.background, zoom: Math.round(p.zoom * 100), effect: p.effect, effectStrength: Math.round(p.strength * 100) })) $(id).value = value;
     $('splitValue').textContent = `${Math.round(state.split * 100)} : ${100 - Math.round(state.split * 100)}`;
     $('gapValue').textContent = state.gap;
     $('borderValue').textContent = state.border;
@@ -112,6 +123,15 @@
   function rects() {
     const [w, h] = dimension(), unit = Math.min(w, h) / 1200;
     const b = state.border * unit, g = state.gap * unit, iw = w - b * 2, ih = h - b * 2;
+    if (state.layout === 'grid' && state.photoCount === 4) {
+      const rw = (iw-g)/2, rh = (ih-g)/2;
+      return Array.from({length:4}, (_,i)=>({x:b+(i%2)*(rw+g), y:b+Math.floor(i/2)*(rh+g), w:rw, h:rh}));
+    }
+    if (state.photoCount > 2) {
+      const horizontal = state.layout === 'horizontal', n = state.photoCount;
+      const step = ((horizontal ? iw : ih) - g*(n-1))/n;
+      return Array.from({length:n}, (_,i)=>({x:b+(horizontal ? i*(step+g):0), y:b+(horizontal ? 0:i*(step+g)), w:horizontal ? step:iw, h:horizontal ? ih:step}));
+    }
     if (state.layout === 'horizontal') { const first = (iw - g) * state.split; return [{ x: b, y: b, w: first, h: ih }, { x: b + first + g, y: b, w: iw - g - first, h: ih }]; }
     const first = (ih - g) * state.split; return [{ x: b, y: b, w: iw, h: first }, { x: b, y: b + first + g, w: iw, h: ih - g - first }];
   }
@@ -184,9 +204,31 @@
     }
     c.restore();
   }
+
+  function renderBackground(c, w, h) {
+    c.save(); c.fillStyle = state.background; c.fillRect(0,0,w,h);
+    if (state.backgroundStyle === 'gradient') {
+      const d = state.gradientDirection;
+      const gradient = c.createLinearGradient(0,0,d === 'vertical' ? 0:w,d === 'horizontal' ? 0:h);
+      gradient.addColorStop(0,state.background); gradient.addColorStop(1,state.backgroundSecond);
+      c.fillStyle = gradient; c.fillRect(0,0,w,h);
+    } else if (state.backgroundStyle === 'dots' || state.backgroundStyle === 'stripes') {
+      const spacing = state.patternSize * Math.min(w,h) / 1200;
+      c.fillStyle = state.backgroundSecond; c.strokeStyle = state.backgroundSecond;
+      if (state.backgroundStyle === 'dots') {
+        for (let row=0,y=spacing/2;y<h+spacing;y+=spacing,row++) for(let x=spacing/2+(row%2)*spacing/2;x<w+spacing;x+=spacing) {
+          c.beginPath(); c.arc(x,y,spacing*.15,0,Math.PI*2); c.fill();
+        }
+      } else {
+        c.lineWidth = spacing*.35;
+        for(let x=-h;x<w+h;x+=spacing) {c.beginPath();c.moveTo(x,0);c.lineTo(x+h,h);c.stroke();}
+      }
+    }
+    c.restore();
+  }
   function render(c, width, height, editor = false) {
     const [w, h] = dimension(); c.save(); c.setTransform(width / w, 0, 0, height / h, 0, 0); c.clearRect(0, 0, w, h);
-    c.fillStyle = state.background; c.fillRect(0, 0, w, h);
+    renderBackground(c, w, h);
     c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
     rects().forEach((r, i) => {
       c.save(); c.beginPath(); c.rect(r.x, r.y, r.w, r.h); c.clip();
@@ -224,8 +266,17 @@
   document.querySelectorAll('[data-layout]').forEach(btn => btn.addEventListener('click', () => action(() => { state.layout = btn.dataset.layout; })));
   document.querySelectorAll('[data-photo]').forEach(btn => btn.addEventListener('click', () => selectPhoto(Number(btn.dataset.photo))));
   document.querySelectorAll('[data-background]').forEach(btn => btn.addEventListener('click', () => action(() => { state.background = btn.dataset.background; })));
-  $('swap').addEventListener('click', () => action(() => { state.panels.reverse(); activePhoto = 1 - activePhoto; }));
+  $('swap').addEventListener('click', () => action(() => { const visible = state.panels.splice(0, state.photoCount); visible.unshift(visible.pop()); state.panels.unshift(...visible); activePhoto = (activePhoto + 1) % state.photoCount; }));
   $('aspect').addEventListener('change', () => action(() => { state.aspect = $('aspect').value; }));
+  document.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => action(() => {
+    state.photoCount = Number(btn.dataset.count);
+    if(state.photoCount !== 4 && state.layout === 'grid') state.layout = 'horizontal';
+    activePhoto = Math.min(activePhoto, state.photoCount-1);
+  })));
+  $('backgroundStyle').addEventListener('change', () => action(() => { state.backgroundStyle = $('backgroundStyle').value; }));
+  $('gradientDirection').addEventListener('change', () => action(() => { state.gradientDirection = $('gradientDirection').value; }));
+  bindControl('backgroundSecond', value => { state.backgroundSecond = value; });
+  bindControl('patternSize', value => { state.patternSize = Number(value); });
   bindControl('split', value => { state.split = Number(value) / 100; });
   bindControl('gap', value => { state.gap = Number(value); });
   bindControl('border', value => { state.border = Number(value); });
@@ -289,7 +340,7 @@
     } catch (error) { toast('この画像を読み込めませんでした。JPEG・PNG、またはスクリーンショットをお試しください。'); }
     finally { URL.revokeObjectURL(url); loading--; update(); }
   }
-  [0, 1].forEach(index => {
+  [0, 1, 2, 3].forEach(index => {
     $('upload' + index).addEventListener('click', () => { finishEdit(); $('file' + index).click(); });
     $('file' + index).addEventListener('change', event => { const file = event.target.files[0]; event.target.value = ''; loadPhoto(file, index); });
   });
@@ -374,7 +425,7 @@
   canvas.addEventListener('lostpointercapture', endPointer);
 
   $('export').addEventListener('click', async () => {
-    finishEdit(); if (state.panels.some(p => !p.asset) || loading || exporting) return;
+    finishEdit(); if (state.panels.slice(0, state.photoCount).some(p => !p.asset) || loading || exporting) return;
     exporting = true; sync();
     try {
       const out = document.createElement('canvas'); [out.width, out.height] = dimension();
@@ -402,14 +453,11 @@
   $('saveDialog').addEventListener('click', event => { if (event.target === $('saveDialog')) { const r = $('saveDialog').getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) $('saveDialog').close(); } });
   window.addEventListener('beforeunload', event => { if (state.panels.some(p => p.asset)) { event.preventDefault(); event.returnValue = ''; } });
   async function setupOffline() {
-    const label = $('offlineStatus');
-    if (!('serviceWorker' in navigator) || !window.isSecureContext) { label.textContent = 'オンラインで初回設定'; return; }
+    if (!('serviceWorker' in navigator) || !window.isSecureContext) return;
     try {
-      await navigator.serviceWorker.register('./service-worker.js');
+      await navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' });
       await navigator.serviceWorker.ready;
-      const registration = await navigator.serviceWorker.getRegistration('./');
-      if (registration && registration.active) { label.textContent = 'オフライン準備OK'; label.classList.add('ready'); }
-    } catch (error) { label.textContent = 'オフライン準備未完了'; }
+    } catch (error) { console.warn('Offline setup unavailable'); }
   }
   window.addEventListener('resize', requestDraw);
   update(); setupOffline();
