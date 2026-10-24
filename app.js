@@ -5,7 +5,7 @@
   const ctx = canvas.getContext('2d');
   const sizes = { landscape: [1800, 1200], square: [1600, 1600], portrait: [1200, 1800], wide: [1920, 1080] };
   const freshPanel = () => ({ asset: null, zoom: 1, x: .5, y: .5, effect: 'none', strength: .6 });
-  let state = { photoCount: 2, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
+  let state = { photoCount: 2, rowSplit: .45, readingDirection: 'ltr', showNumbers: true, showFlow: true, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
   let activePhoto = 0, activeTab = 'layout', selectedObject = null;
   let undoStack = [], redoStack = [], editBefore = null, gestureBefore = null;
   let savedUrl = null, savedBlob = null, savedFile = null, loading = 0, exporting = false;
@@ -78,8 +78,19 @@
     document.querySelectorAll('[data-photo]').forEach(btn => { btn.hidden = Number(btn.dataset.photo) >= state.photoCount; btn.setAttribute('aria-pressed', Number(btn.dataset.photo) === activePhoto); });
     document.querySelectorAll('[data-count]').forEach(btn => btn.setAttribute('aria-pressed', Number(btn.dataset.count) === state.photoCount));
     $('gridLayout').hidden = state.photoCount !== 4;
+    $('threeLayouts').hidden = state.photoCount !== 3;
+    const story = state.photoCount === 3 && ['top-one','top-two'].includes(state.layout);
+    $('storyControls').hidden = !story;
+    $('rowSplit').value = Math.round(state.rowSplit * 100);
+    $('rowSplitValue').textContent = Math.round(state.rowSplit*100) + ' : ' + (100-Math.round(state.rowSplit*100));
+    $('readingDirection').value = state.readingDirection;
+    $('showNumbers').checked = state.showNumbers; $('showFlow').checked = state.showFlow;
+    $('reorderPhoto').value = activePhoto;
+    $('moveBefore').disabled = activePhoto === 0; $('moveAfter').disabled = activePhoto >= 2;
+    const right = state.readingDirection === 'rtl';
+    $('readingHint').textContent = state.layout === 'top-one' ? (right ? '①上 → ②右下 → ③左下' : '①上 → ②左下 → ③右下') : (right ? '①右上 → ②左上 → ③下' : '①左上 → ②右上 → ③下');
     $('splitControls').hidden = state.photoCount !== 2;
-    $('equalHint').hidden = state.photoCount === 2;
+    $('equalHint').hidden = state.photoCount === 2 || story;
     $('swap').textContent = state.photoCount === 2 ? '画像を入れ替え ⇄' : '順番をずらす ↻';
     $('backgroundOptions').hidden = state.backgroundStyle === 'solid';
     $('gradientOptions').hidden = state.backgroundStyle !== 'gradient';
@@ -123,6 +134,14 @@
   function rects() {
     const [w, h] = dimension(), unit = Math.min(w, h) / 1200;
     const b = state.border * unit, g = state.gap * unit, iw = w - b * 2, ih = h - b * 2;
+    if (state.photoCount === 3 && ['top-one','top-two'].includes(state.layout)) {
+      const topH = (ih-g)*state.rowSplit, bottomH = ih-g-topH, halfW=(iw-g)/2;
+      const fullTop={x:b,y:b,w:iw,h:topH}, fullBottom={x:b,y:b+topH+g,w:iw,h:bottomH};
+      const pairY=state.layout==='top-one'?fullBottom.y:b, pairH=state.layout==='top-one'?bottomH:topH;
+      const pair=[{x:b,y:pairY,w:halfW,h:pairH},{x:b+halfW+g,y:pairY,w:halfW,h:pairH}];
+      if(state.readingDirection==='rtl') pair.reverse();
+      return state.layout==='top-one' ? [fullTop,...pair] : [...pair,fullBottom];
+    }
     if (state.layout === 'grid' && state.photoCount === 4) {
       const rw = (iw-g)/2, rh = (ih-g)/2;
       return Array.from({length:4}, (_,i)=>({x:b+(i%2)*(rw+g), y:b+Math.floor(i/2)*(rh+g), w:rw, h:rh}));
@@ -240,7 +259,32 @@
         c.save(); c.strokeStyle = '#7254df'; c.lineWidth = Math.min(w, h) * .004; c.strokeRect(r.x + c.lineWidth / 2, r.y + c.lineWidth / 2, r.w - c.lineWidth, r.h - c.lineWidth); c.restore();
       }
     });
-    state.objects.forEach(o => renderObject(c, o, editor)); c.restore();
+    state.objects.forEach(o => renderObject(c, o, editor)); renderStory(c); c.restore();
+  }
+
+  function renderStory(c) {
+    if(state.photoCount!==3 || !['top-one','top-two'].includes(state.layout))return;
+    const [w,h]=dimension(), unit=Math.min(w,h)/1200, rs=rects();
+    c.save();
+    if(state.showFlow) {
+      for(let i=0;i<2;i++) {
+        const from=rs[i],to=rs[i+1], sameRow=Math.abs(from.y-to.y)<1;
+        let mx,my,dx,dy;
+        if(sameRow) {dx=to.x>from.x?1:-1;dy=0;mx=dx>0?(from.x+from.w+to.x)/2:(to.x+to.w+from.x)/2;my=from.y+from.h/2;}
+        else {dx=0;dy=1;mx=state.layout==='top-one'?to.x+to.w/2:from.x+from.w/2;my=(from.y+from.h+to.y)/2;}
+        const half=(state.gap/2+25)*unit, head=13*unit;
+        c.beginPath();c.moveTo(mx-dx*half,my-dy*half);c.lineTo(mx+dx*half,my+dy*half);
+        c.moveTo(mx+dx*half-dx*head-dy*head*.7,my+dy*half-dy*head+dx*head*.7);c.lineTo(mx+dx*half,my+dy*half);c.lineTo(mx+dx*half-dx*head+dy*head*.7,my+dy*half-dy*head-dx*head*.7);
+        c.lineCap='round';c.lineJoin='round';c.strokeStyle='#ffffff';c.lineWidth=13*unit;c.stroke();c.strokeStyle='#252635';c.lineWidth=6*unit;c.stroke();
+      }
+    }
+    if(state.showNumbers) rs.forEach((r,i)=>{
+      const radius=24*unit, margin=14*unit;
+      const x=state.readingDirection==='rtl'?r.x+r.w-margin-radius:r.x+margin+radius,y=r.y+margin+radius;
+      c.beginPath();c.arc(x,y,radius,0,Math.PI*2);c.fillStyle='#ffffff';c.fill();c.lineWidth=2.5*unit;c.strokeStyle='#252635';c.stroke();
+      c.fillStyle='#252635';c.font='800 '+(27*unit)+'px -apple-system, sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(String(i+1),x,y+unit);
+    });
+    c.restore();
   }
   function drawPreview() {
     const [w, h] = dimension(), scale = Math.min(1, 1100 / Math.max(w, h));
@@ -269,7 +313,10 @@
   $('swap').addEventListener('click', () => action(() => { const visible = state.panels.splice(0, state.photoCount); visible.unshift(visible.pop()); state.panels.unshift(...visible); activePhoto = (activePhoto + 1) % state.photoCount; }));
   $('aspect').addEventListener('change', () => action(() => { state.aspect = $('aspect').value; }));
   document.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => action(() => {
+    const previous = state.photoCount;
     state.photoCount = Number(btn.dataset.count);
+    if(state.photoCount===3 && previous!==3) state.layout='top-one';
+    if(state.photoCount!==3 && ['top-one','top-two'].includes(state.layout)) state.layout='horizontal';
     if(state.photoCount !== 4 && state.layout === 'grid') state.layout = 'horizontal';
     activePhoto = Math.min(activePhoto, state.photoCount-1);
   })));
@@ -277,6 +324,18 @@
   $('gradientDirection').addEventListener('change', () => action(() => { state.gradientDirection = $('gradientDirection').value; }));
   bindControl('backgroundSecond', value => { state.backgroundSecond = value; });
   bindControl('patternSize', value => { state.patternSize = Number(value); });
+  bindControl('rowSplit', value=>{state.rowSplit=Number(value)/100;});
+  $('readingDirection').addEventListener('change',()=>action(()=>{state.readingDirection=$('readingDirection').value;}));
+  ['showNumbers','showFlow'].forEach(id=>$(id).addEventListener('change',()=>action(()=>{state[id]=$(id).checked;})));
+  $('noMargins').addEventListener('click',()=>action(()=>{state.gap=0;state.border=0;}));
+  $('reorderPhoto').addEventListener('change',()=>selectPhoto(Number($('reorderPhoto').value)));
+  function movePhoto(step) {
+    const next=activePhoto+step;
+    if(next<0||next>=state.photoCount)return;
+    action(()=>{[state.panels[activePhoto],state.panels[next]]=[state.panels[next],state.panels[activePhoto]];activePhoto=next;});
+  }
+  $('moveBefore').addEventListener('click',()=>movePhoto(-1));
+  $('moveAfter').addEventListener('click',()=>movePhoto(1));
   bindControl('split', value => { state.split = Number(value) / 100; });
   bindControl('gap', value => { state.gap = Number(value); });
   bindControl('border', value => { state.border = Number(value); });

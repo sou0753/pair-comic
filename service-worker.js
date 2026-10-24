@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'pair-comic-v2-20261024';
+const CACHE = 'pair-comic-v3-20261024';
 const FILES = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));

@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja" data-app-version="2">
+<html lang="ja" data-app-version="3">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -15,7 +15,7 @@
   <script src="./app.js" defer></script>
 </head>
 <body>
-  <header class="site-header"><a class="brand" href="./" aria-label="PAIR ホーム"><span class="brand-icon" aria-hidden="true"><i></i><i></i></span>PAIR<span class="brand-dot">.</span></a></header>
+  <header class="site-header"><a class="brand" href="./" aria-label="PAIR ホーム"><span class="brand-icon" aria-hidden="true"><i></i><i></i></span>PAIR<span class="brand-dot">.</span></a><span class="version-tag">v3</span></header>
   <main>
     <section class="intro"><p class="eyebrow">YOUR PHOTOS. ONE STORY.</p><h1>写真を、ひとつに。</h1></section>
     <div class="workspace">
@@ -36,9 +36,15 @@
         <div class="control-panel" id="panel-layout" role="tabpanel" aria-labelledby="tab-layout">
           <div class="section-title"><h2>画像の並べ方</h2><button id="swap" class="text-button" type="button">画像を入れ替え ⇄</button></div>
           <div class="layout-options"><button type="button" class="layout-choice selected" data-layout="horizontal" aria-pressed="true"><span class="layout-glyph horizontal"><i>1</i><i>2</i></span>左右に並べる</button><button type="button" class="layout-choice" data-layout="vertical" aria-pressed="false"><span class="layout-glyph vertical"><i>1</i><i>2</i></span>上下に並べる</button></div>
-          <button id="gridLayout" class="layout-choice full" data-layout="grid" type="button" aria-pressed="false" hidden>▦ 2 × 2 に並べる</button><label class="field-label" for="aspect">仕上がりの形</label><select id="aspect"><option value="landscape">横長 3 : 2</option><option value="square">正方形 1 : 1</option><option value="portrait">縦長 2 : 3</option><option value="wide">ワイド 16 : 9</option></select>
+          <div id="threeLayouts" hidden><div class="layout-options three-layouts"><button type="button" class="layout-choice" data-layout="top-one" aria-pressed="false"><span class="three-glyph top-one"><i>1</i><i>2</i><i>3</i></span>上1枚・下2枚</button><button type="button" class="layout-choice" data-layout="top-two" aria-pressed="false"><span class="three-glyph top-two"><i>1</i><i>2</i><i>3</i></span>上2枚・下1枚</button></div></div><button id="gridLayout" class="layout-choice full" data-layout="grid" type="button" aria-pressed="false" hidden>▦ 2 × 2 に並べる</button><label class="field-label" for="aspect">仕上がりの形</label><select id="aspect"><option value="landscape">横長 3 : 2</option><option value="square">正方形 1 : 1</option><option value="portrait">縦長 2 : 3</option><option value="wide">ワイド 16 : 9</option></select>
           <div id="splitControls"><div class="range-label"><label for="split">2枚のバランス</label><output id="splitValue" for="split">50 : 50</output></div><input id="split" type="range" min="25" max="75" value="50"></div><p id="equalHint" class="help" hidden>3・4枚は等しい大きさで並びます。</p>
-          <div class="two-fields"><div><div class="range-label"><label for="gap">画像のすき間</label><output id="gapValue" for="gap">8</output></div><input id="gap" type="range" min="0" max="60" value="8"></div><div><div class="range-label"><label for="border">外側の余白</label><output id="borderValue" for="border">12</output></div><input id="border" type="range" min="0" max="80" value="12"></div></div>
+          <div id="storyControls" hidden>
+<div class="range-label"><label for="rowSplit">上段・下段の高さ</label><output id="rowSplitValue" for="rowSplit">45 : 55</output></div><input id="rowSplit" type="range" min="25" max="75" value="45">
+<label class="field-label" for="readingDirection">読む順序</label><select id="readingDirection"><option value="ltr">左から右へ</option><option value="rtl">右から左へ（漫画の順序）</option></select><p id="readingHint" class="help"></p>
+<div class="story-toggles"><label><input id="showNumbers" type="checkbox" checked>コマ番号 ①②③</label><label><input id="showFlow" type="checkbox" checked>進行方向の矢印</label></div>
+<label class="field-label" for="reorderPhoto">順番を変える画像</label><select id="reorderPhoto"><option value="0">画像1</option><option value="1">画像2</option><option value="2">画像3</option></select><div class="add-actions reorder-actions"><button id="moveBefore" type="button" class="secondary-button">ひとつ前へ</button><button id="moveAfter" type="button" class="secondary-button">ひとつ後へ</button></div>
+<p class="help">3つのコマで全体を埋めます。画像の端が切れる場合は、高さと「切り取る」で調整してください。</p></div>
+<button id="noMargins" type="button" class="secondary-button full no-margins">余白なしにする</button><div class="two-fields"><div><div class="range-label"><label for="gap">画像のすき間</label><output id="gapValue" for="gap">8</output></div><input id="gap" type="range" min="0" max="60" value="8"></div><div><div class="range-label"><label for="border">外側の余白</label><output id="borderValue" for="border">12</output></div><input id="border" type="range" min="0" max="80" value="12"></div></div>
           <label class="field-label" for="backgroundStyle">余白のデザイン</label><select id="backgroundStyle"><option value="solid">単色</option><option value="gradient">グラデーション</option><option value="dots">水玉</option><option value="stripes">ストライプ</option></select><div class="color-row"><label for="background">余白の色</label><div class="swatches"><button type="button" class="swatch" data-background="#ffffff" style="--swatch:#ffffff" aria-label="余白を白にする"></button><button type="button" class="swatch" data-background="#20212b" style="--swatch:#20212b" aria-label="余白を黒にする"></button><button type="button" class="swatch" data-background="#f5eccf" style="--swatch:#f5eccf" aria-label="余白をクリームにする"></button><input id="background" type="color" value="#ffffff" aria-label="余白の色を選ぶ"></div></div>
           <div id="backgroundOptions" hidden><div class="color-row"><label for="backgroundSecond">2色目・模様の色</label><input id="backgroundSecond" type="color" value="#b5a1ee"></div><div id="gradientOptions"><label class="field-label" for="gradientDirection">グラデーションの向き</label><select id="gradientDirection"><option value="diagonal">斜め</option><option value="horizontal">横</option><option value="vertical">縦</option></select></div><div id="patternOptions"><div class="range-label"><label for="patternSize">模様の大きさ</label></div><input id="patternSize" type="range" min="16" max="80" value="36"></div></div><p class="help">色や模様は、画像のすき間と外側の余白に付きます。</p><p class="help">境界の位置や余白を変えると、画像の切り取り範囲も変わります。「切り取る」で仕上げましょう。</p>
         </div>
