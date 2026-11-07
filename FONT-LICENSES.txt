@@ -1,0 +1,20 @@
+PAIR v4 / Bundled fonts
+Downloaded 2026-11-07 from Google Fonts official repository.
+All four fonts are distributed unmodified under SIL Open Font License 1.1.
+Copyright notices and complete licenses are in the adjacent OFL-*.txt files.
+
+Yomogi
+https://github.com/google/fonts/tree/main/ofl/yomogi
+License: OFL-yomogi.txt
+
+Zen Maru Gothic
+https://github.com/google/fonts/tree/main/ofl/zenmarugothic
+License: OFL-zenmarugothic.txt
+
+Kiwi Maru
+https://github.com/google/fonts/tree/main/ofl/kiwimaru
+License: OFL-kiwimaru.txt
+
+Zen Kaku Gothic New
+https://github.com/google/fonts/tree/main/ofl/zenkakugothicnew
+License: OFL-zenkakugothicnew.txt

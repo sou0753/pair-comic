@@ -5,7 +5,7 @@
   const ctx = canvas.getContext('2d');
   const sizes = { landscape: [1800, 1200], square: [1600, 1600], portrait: [1200, 1800], wide: [1920, 1080] };
   const freshPanel = () => ({ asset: null, zoom: 1, x: .5, y: .5, effect: 'none', strength: .6 });
-  let state = { photoCount: 2, rowSplit: .45, readingDirection: 'ltr', showNumbers: true, showFlow: true, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
+  let state = { photoCount: 2, rowSplit: .5, mainWidth: .5, readingDirection: 'ltr', showNumbers: true, showFlow: true, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
   let activePhoto = 0, activeTab = 'layout', selectedObject = null;
   let undoStack = [], redoStack = [], editBefore = null, gestureBefore = null;
   let savedUrl = null, savedBlob = null, savedFile = null, loading = 0, exporting = false;
@@ -79,8 +79,12 @@
     document.querySelectorAll('[data-count]').forEach(btn => btn.setAttribute('aria-pressed', Number(btn.dataset.count) === state.photoCount));
     $('gridLayout').hidden = state.photoCount !== 4;
     $('threeLayouts').hidden = state.photoCount !== 3;
-    const story = state.photoCount === 3 && ['top-one','top-two'].includes(state.layout);
+    const side = state.photoCount === 3 && ['right-main','left-main'].includes(state.layout);
+    const story = state.photoCount === 3 && ['top-one','top-two','right-main','left-main'].includes(state.layout);
     $('storyControls').hidden = !story;
+    $('mainWidthControl').hidden = !side; $('topReading').hidden = side;
+    $('mainWidth').value = Math.round(state.mainWidth*100); $('mainWidthValue').textContent = Math.round(state.mainWidth*100)+'%';
+    document.querySelector('label[for="rowSplit"]').textContent = side ? '小さい2コマの高さ' : '上段・下段の高さ';
     $('rowSplit').value = Math.round(state.rowSplit * 100);
     $('rowSplitValue').textContent = Math.round(state.rowSplit*100) + ' : ' + (100-Math.round(state.rowSplit*100));
     $('readingDirection').value = state.readingDirection;
@@ -89,6 +93,7 @@
     $('moveBefore').disabled = activePhoto === 0; $('moveAfter').disabled = activePhoto >= 2;
     const right = state.readingDirection === 'rtl';
     $('readingHint').textContent = state.layout === 'top-one' ? (right ? '①上 → ②右下 → ③左下' : '①上 → ②左下 → ③右下') : (right ? '①右上 → ②左上 → ③下' : '①左上 → ②右上 → ③下');
+    if(side) $('readingHint').textContent = state.layout==='right-main' ? '①右の大枠 → ②左上 → ③左下' : '①左の大枠 → ②右上 → ③右下';
     $('splitControls').hidden = state.photoCount !== 2;
     $('equalHint').hidden = state.photoCount === 2 || story;
     $('swap').textContent = state.photoCount === 2 ? '画像を入れ替え ⇄' : '順番をずらす ↻';
@@ -106,7 +111,7 @@
     $('resetCrop').disabled = !p.asset;
     document.querySelectorAll('[data-nudge]').forEach(btn => btn.disabled = !p.asset);
     $('overlayCount').textContent = `${state.objects.length} / 12`;
-    $('addArrow').disabled = $('addText').disabled = state.objects.length >= 12;
+    ['addArrow','addText','addBubble','addSound','addStamp'].forEach(id=>$(id).disabled=state.objects.length>=12);
     if (!o && state.objects.length) { selectedObject = state.objects[state.objects.length - 1].id; }
     syncObject();
   }
@@ -118,11 +123,20 @@
     // Use textContent for user-entered text; never interpret it as markup.
     select.replaceChildren(...state.objects.map((item, i) => {
       const opt = document.createElement('option'); opt.value = item.id;
-      opt.textContent = `${i + 1}. ${item.type === 'arrow' ? '矢印' : item.text || '文字'}`;
+      opt.textContent = `${i + 1}. ${({arrow:'矢印',stamp:'スタンプ',bubble:'吹き出し',sound:'効果音文字'})[item.type] || item.text || '文字'}`;
       return opt;
     }));
     select.value = o.id;
-    $('textField').hidden = o.type !== 'text';
+    const isText=['text','sound','bubble'].includes(o.type);
+    $('textField').hidden = !isText; $('fontControls').hidden=!isText;
+    $('bubbleControls').hidden=o.type!=='bubble'; $('stampControls').hidden=o.type!=='stamp';
+    $('outlineControls').hidden=!['text','sound','stamp'].includes(o.type);
+    $('objectFont').value=o.font||'system';
+    $('fontStatus').textContent=fontStates.get(o.font)==='loading'?'フォントを読み込み中…':fontStates.get(o.font)==='failed'?'フォントを取得できません。接続中に選び直してください。':'';
+    $('stampSymbol').value=o.symbol||'star'; $('bubbleShape').value=o.shape||'oval'; $('bubbleTail').value=o.tail||'bottom';
+    $('bubbleFill').value=o.fill||'#ffffff'; $('bubbleBorder').value=o.borderColor||'#252635';
+    $('bubbleRatio').value=Math.round((o.ratio||.65)*100); $('bubbleTextSize').value=Math.round((o.textScale||.04)*1000);
+    $('outlineColor').value=o.outlineColor||'#ffffff'; $('outlineWidth').value=Math.round((o.outline??.09)*100);
     if (document.activeElement !== $('textContent')) $('textContent').value = o.text || '';
     $('objectSize').value = Math.round(o.size * 100);
     $('objectAngle').value = Math.round(o.angle);
@@ -134,7 +148,12 @@
   function rects() {
     const [w, h] = dimension(), unit = Math.min(w, h) / 1200;
     const b = state.border * unit, g = state.gap * unit, iw = w - b * 2, ih = h - b * 2;
-    if (state.photoCount === 3 && ['top-one','top-two'].includes(state.layout)) {
+    if(state.photoCount===3 && ['right-main','left-main'].includes(state.layout)) {
+      const mainW=(iw-g)*state.mainWidth,smallW=iw-g-mainW,topH=(ih-g)*state.rowSplit;
+      const right=state.layout==='right-main',mainX=right?b+smallW+g:b,smallX=right?b:b+mainW+g;
+      return [{x:mainX,y:b,w:mainW,h:ih},{x:smallX,y:b,w:smallW,h:topH},{x:smallX,y:b+topH+g,w:smallW,h:ih-g-topH}];
+    }
+    if (state.photoCount === 3 && ['top-one','top-two','right-main','left-main'].includes(state.layout)) {
       const topH = (ih-g)*state.rowSplit, bottomH = ih-g-topH, halfW=(iw-g)/2;
       const fullTop={x:b,y:b,w:iw,h:topH}, fullBottom={x:b,y:b+topH+g,w:iw,h:bottomH};
       const pairY=state.layout==='top-one'?fullBottom.y:b, pairH=state.layout==='top-one'?bottomH:topH;
@@ -199,28 +218,102 @@
     }
     c.restore();
   }
-  function objectMetrics(c, o) {
-    const [w, h] = dimension(), short = Math.min(w, h);
-    if (o.type === 'arrow') return { w: short * o.size * 2, h: short * o.size * .65 };
-    const fontSize = short * o.size * .38;
-    c.font = `800 ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
-    return { w: Math.max(fontSize, c.measureText(o.text || ' ').width), h: fontSize * 1.35, fontSize };
+  const FONT_DEFS = {
+    zen: { family: 'PairZen', file: 'ZenKakuGothicNew-Regular.ttf' },
+    maru: { family: 'PairMaru', file: 'ZenMaruGothic-Regular.ttf' },
+    yomogi: { family: 'PairYomogi', file: 'Yomogi-Regular.ttf' },
+    kiwi: { family: 'PairKiwi', file: 'KiwiMaru-Regular.ttf' }
+  };
+  const fontLoads = new Map(), fontStates = new Map();
+  function ensureFont(key) {
+    const def = FONT_DEFS[key];
+    if (!def) return Promise.resolve();
+    if (fontLoads.has(key)) return fontLoads.get(key);
+    fontStates.set(key, 'loading');
+    const load = new FontFace(def.family, `url("./${def.file}")`).load().then(face => {
+      document.fonts.add(face); fontStates.set(key, 'ready'); requestDraw();
+    }).catch(error => { fontStates.set(key, 'failed'); fontLoads.delete(key); throw error; });
+    fontLoads.set(key, load); return load;
   }
-  function renderObject(c, o, editor) {
-    const [w, h] = dimension(); c.save();
-    const m = objectMetrics(c, o);
-    c.translate(w * o.x, h * o.y); c.rotate(o.angle * Math.PI / 180);
-    c.fillStyle = o.color; c.strokeStyle = '#fff'; c.lineJoin = 'round'; c.lineCap = 'round';
-    if (o.type === 'arrow') {
-      const shaft = m.h * .24, head = m.w * .26;
-      c.beginPath(); c.moveTo(-m.w / 2, -shaft / 2); c.lineTo(m.w / 2 - head, -shaft / 2); c.lineTo(m.w / 2 - head, -m.h / 2); c.lineTo(m.w / 2, 0); c.lineTo(m.w / 2 - head, m.h / 2); c.lineTo(m.w / 2 - head, shaft / 2); c.lineTo(-m.w / 2, shaft / 2); c.closePath();
-      c.lineWidth = Math.max(3, m.h * .065); c.stroke(); c.fill();
+  function fontSpec(o, px) {
+    const def = FONT_DEFS[o.font];
+    return `${def ? 400 : 800} ${px}px ${def ? '"' + def.family + '", ' : ''}-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`;
+  }
+  function wrapBubble(c, text, maxWidth) {
+    const lines=[];
+    for(const paragraph of text.split('\n')) {
+      let line='';
+      for(const char of Array.from(paragraph)) {
+        if(line && c.measureText(line+char).width>maxWidth) {lines.push(line);line=char;} else line+=char;
+      }
+      lines.push(line);
+    }
+    return lines;
+  }
+  function objectMetrics(c, o) {
+    const [w,h]=dimension(), short=Math.min(w,h);
+    if(o.type==='arrow')return {w:short*o.size*2,h:short*o.size*.65};
+    if(o.type==='stamp')return {w:short*o.size,h:short*o.size};
+    if(o.type==='bubble') {
+      const bw=short*o.size*2, bh=bw*(o.ratio||.65), tail=o.tail==='none'?0:Math.min(bw,bh)*.28;
+      let fontSize=short*(o.textScale||.04),lines=[];
+      for(let n=0;n<90;n++) {
+        c.font=fontSpec(o,fontSize);lines=wrapBubble(c,o.text||'',bw*.69);
+        if(lines.length*fontSize*1.35<=bh*.6)break;
+        fontSize*=.94;
+      }
+      return {w:bw+(['left','right'].includes(o.tail)?tail*2:0),h:bh+(['top','bottom'].includes(o.tail)?tail*2:0),bw,bh,tail,fontSize,lines};
+    }
+    const fontSize=short*o.size*.38;
+    c.font=fontSpec(o,fontSize);
+    const lines=(o.text||' ').split('\n');
+    return {w:Math.max(fontSize,...lines.map(line=>c.measureText(line).width)),h:fontSize*1.35*lines.length,fontSize,lines};
+  }
+  function bubblePath(c,o,m) {
+    const n=64,rx=m.bw/2,ry=m.bh/2;
+    const tipIndex={right:0,bottom:16,left:32,top:48}[o.tail];
+    c.beginPath();
+    // Start away from the tail so the closed outline also works for right tails.
+    for(let j=4;j<=68;j++) {
+      const i=j%n,angle=i*Math.PI*2/n;
+      let x,y;
+      if(o.shape==='round') {const power=2/5;x=rx*Math.sign(Math.cos(angle))*Math.pow(Math.abs(Math.cos(angle)),power);y=ry*Math.sign(Math.sin(angle))*Math.pow(Math.abs(Math.sin(angle)),power);}
+      else {const radius=o.shape==='burst' && i%2 ? .83:1;x=rx*Math.cos(angle)*radius;y=ry*Math.sin(angle)*radius;}
+      if(tipIndex!==undefined && i===tipIndex) {x=(rx+m.tail)*Math.cos(angle);y=(ry+m.tail)*Math.sin(angle);}
+      if(j===4)c.moveTo(x,y);else c.lineTo(x,y);
+    }
+    c.closePath();
+  }
+  function stampPath(c,o,m) {
+    const r=m.w/2;c.beginPath();
+    if(o.symbol==='heart') {
+      c.moveTo(0,r*.85);c.bezierCurveTo(-r*1.8,-r*.2,-r*.65,-r*1.45,0,-r*.55);c.bezierCurveTo(r*.65,-r*1.45,r*1.8,-r*.2,0,r*.85);
+    } else if(o.symbol==='music') {
+      c.ellipse(-r*.35,r*.55,r*.32,r*.22,-.3,0,Math.PI*2);c.rect(-r*.11,-r*.8,r*.15,r*1.36);c.moveTo(r*.02,-r*.8);c.bezierCurveTo(r*.7,-r*.65,r*.85,-r*.15,r*.37,r*.08);c.bezierCurveTo(r*.65,-r*.3,r*.3,-r*.4,r*.02,-r*.45);
+    } else if(o.symbol==='bang') {
+      c.moveTo(-r*.18,-r*.85);c.lineTo(r*.18,-r*.85);c.lineTo(r*.11,r*.28);c.lineTo(-r*.11,r*.28);c.closePath();c.moveTo(r*.18,r*.65);c.arc(0,r*.65,r*.18,0,Math.PI*2);
     } else {
-      c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = Math.max(3, m.fontSize * .09); c.strokeText(o.text, 0, 0); c.fillText(o.text, 0, 0);
+      for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,rr=i%2?r*.43:r;if(i===0)c.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);else c.lineTo(Math.cos(a)*rr,Math.sin(a)*rr);}c.closePath();
     }
-    if (editor && activeTab === 'decor' && o.id === selectedObject) {
-      c.strokeStyle = '#7254df'; c.lineWidth = Math.min(w, h) * .0025; c.setLineDash([10, 6]); c.strokeRect(-m.w / 2 - 9, -m.h / 2 - 9, m.w + 18, m.h + 18);
+  }
+  function renderObject(c,o,editor) {
+    const [w,h]=dimension();c.save();const m=objectMetrics(c,o);
+    c.translate(w*o.x,h*o.y);c.rotate(o.angle*Math.PI/180);
+    c.fillStyle=o.color;c.strokeStyle=o.outlineColor||'#ffffff';c.lineJoin='round';c.lineCap='round';
+    if(o.type==='arrow') {
+      const shaft=m.h*.24,head=m.w*.26;
+      c.beginPath();c.moveTo(-m.w/2,-shaft/2);c.lineTo(m.w/2-head,-shaft/2);c.lineTo(m.w/2-head,-m.h/2);c.lineTo(m.w/2,0);c.lineTo(m.w/2-head,m.h/2);c.lineTo(m.w/2-head,shaft/2);c.lineTo(-m.w/2,shaft/2);c.closePath();c.lineWidth=Math.max(3,m.h*.065);c.stroke();c.fill();
+    } else if(o.type==='stamp') {
+      stampPath(c,o,m);c.lineWidth=Math.max(2,m.w*(o.outline??.06));if(o.outline!==0)c.stroke();c.fill();
+    } else if(o.type==='bubble') {
+      bubblePath(c,o,m);c.fillStyle=o.fill||'#ffffff';c.strokeStyle=o.borderColor||'#252635';c.lineWidth=Math.max(2,Math.min(w,h)*.003);c.fill();c.stroke();
+      c.font=fontSpec(o,m.fontSize);c.fillStyle=o.color;c.textAlign='center';c.textBaseline='middle';
+      m.lines.forEach((line,i)=>c.fillText(line,0,(i-(m.lines.length-1)/2)*m.fontSize*1.35));
+    } else {
+      c.font=fontSpec(o,m.fontSize);c.textAlign='center';c.textBaseline='middle';c.lineWidth=Math.max(1,m.fontSize*(o.outline??.09));
+      m.lines.forEach((line,i)=>{const y=(i-(m.lines.length-1)/2)*m.fontSize*1.35;if(o.outline!==0)c.strokeText(line,0,y);c.fillText(line,0,y);});
     }
+    if(editor&&activeTab==='decor'&&o.id===selectedObject) {c.strokeStyle='#7254df';c.lineWidth=Math.min(w,h)*.0025;c.setLineDash([10,6]);c.strokeRect(-m.w/2-9,-m.h/2-9,m.w+18,m.h+18);}
     c.restore();
   }
 
@@ -263,14 +356,14 @@
   }
 
   function renderStory(c) {
-    if(state.photoCount!==3 || !['top-one','top-two'].includes(state.layout))return;
+    if(state.photoCount!==3 || !['top-one','top-two','right-main','left-main'].includes(state.layout))return;
     const [w,h]=dimension(), unit=Math.min(w,h)/1200, rs=rects();
     c.save();
     if(state.showFlow) {
       for(let i=0;i<2;i++) {
-        const from=rs[i],to=rs[i+1], sameRow=Math.abs(from.y-to.y)<1;
+        const from=rs[i],to=rs[i+1], side=['right-main','left-main'].includes(state.layout), sameRow=Math.abs(from.y-to.y)<1;
         let mx,my,dx,dy;
-        if(sameRow) {dx=to.x>from.x?1:-1;dy=0;mx=dx>0?(from.x+from.w+to.x)/2:(to.x+to.w+from.x)/2;my=from.y+from.h/2;}
+        if(sameRow) {dx=to.x>from.x?1:-1;dy=0;mx=dx>0?(from.x+from.w+to.x)/2:(to.x+to.w+from.x)/2;my=side?to.y+to.h/2:from.y+from.h/2;}
         else {dx=0;dy=1;mx=state.layout==='top-one'?to.x+to.w/2:from.x+from.w/2;my=(from.y+from.h+to.y)/2;}
         const half=(state.gap/2+25)*unit, head=13*unit;
         c.beginPath();c.moveTo(mx-dx*half,my-dy*half);c.lineTo(mx+dx*half,my+dy*half);
@@ -280,7 +373,7 @@
     }
     if(state.showNumbers) rs.forEach((r,i)=>{
       const radius=24*unit, margin=14*unit;
-      const x=state.readingDirection==='rtl'?r.x+r.w-margin-radius:r.x+margin+radius,y=r.y+margin+radius;
+      const x=(state.layout==='right-main'||(!['right-main','left-main'].includes(state.layout)&&state.readingDirection==='rtl'))?r.x+r.w-margin-radius:r.x+margin+radius,y=r.y+margin+radius;
       c.beginPath();c.arc(x,y,radius,0,Math.PI*2);c.fillStyle='#ffffff';c.fill();c.lineWidth=2.5*unit;c.strokeStyle='#252635';c.stroke();
       c.fillStyle='#252635';c.font='800 '+(27*unit)+'px -apple-system, sans-serif';c.textAlign='center';c.textBaseline='middle';c.fillText(String(i+1),x,y+unit);
     });
@@ -315,8 +408,8 @@
   document.querySelectorAll('[data-count]').forEach(btn => btn.addEventListener('click', () => action(() => {
     const previous = state.photoCount;
     state.photoCount = Number(btn.dataset.count);
-    if(state.photoCount===3 && previous!==3) state.layout='top-one';
-    if(state.photoCount!==3 && ['top-one','top-two'].includes(state.layout)) state.layout='horizontal';
+    if(state.photoCount===3 && previous!==3) state.layout='right-main';
+    if(state.photoCount!==3 && ['top-one','top-two','right-main','left-main'].includes(state.layout)) state.layout='horizontal';
     if(state.photoCount !== 4 && state.layout === 'grid') state.layout = 'horizontal';
     activePhoto = Math.min(activePhoto, state.photoCount-1);
   })));
@@ -360,17 +453,38 @@
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) travelHistory(redoStack, undoStack); else travelHistory(undoStack, redoStack); }
   });
   function addObject(type) {
-    if (state.objects.length >= 12) { toast('矢印・文字は合計12個まで追加できます'); return; }
+    if (state.objects.length >= 12) { toast('飾りは合計12個まで追加できます'); return; }
     action(() => {
       const o = { id: 'o' + nextId++, type, x: .5, y: .5, size: type === 'arrow' ? .25 : .16, angle: type === 'arrow' ? -35 : 0, color: type === 'arrow' ? '#ee5545' : '#252635', text: type === 'text' ? 'ここに文字' : '' };
+      Object.assign(o,{font:'system',outlineColor:'#ffffff',outline:.09});
+      if(type==='bubble')Object.assign(o,{size:.3,text:'ここにセリフ',font:'kiwi',shape:'oval',tail:'bottom',ratio:.65,textScale:.04,fill:'#ffffff',borderColor:'#252635'});
+      if(type==='sound')Object.assign(o,{size:.23,text:'ドン！',font:'zen',color:'#ed493e',angle:-12,outline:.16});
+      if(type==='stamp')Object.assign(o,{size:.2,symbol:'star',color:'#f5bf34',outline:.06});
       state.objects.push(o); selectedObject = o.id;
     });
-    if (type === 'text') { $('textContent').focus(); $('textContent').select(); }
+    if (['text','bubble','sound'].includes(type)) { $('textContent').focus(); $('textContent').select(); }
+    const o=object(); if(o&&FONT_DEFS[o.font])ensureFont(o.font).then(update).catch(()=>update());
   }
   $('addArrow').addEventListener('click', () => addObject('arrow'));
   $('addText').addEventListener('click', () => addObject('text'));
+  $('addBubble').addEventListener('click',()=>addObject('bubble'));
+  $('addSound').addEventListener('click',()=>addObject('sound'));
+  $('addStamp').addEventListener('click',()=>addObject('stamp'));
+  bindControl('mainWidth',v=>{state.mainWidth=Number(v)/100;});
+  $('flipSide').addEventListener('click',()=>action(()=>{state.layout=state.layout==='right-main'?'left-main':'right-main';}));
+  const objectSelects={objectFont:'font',stampSymbol:'symbol',bubbleShape:'shape',bubbleTail:'tail'};
+  for(const [id,key] of Object.entries(objectSelects))$(id).addEventListener('change',()=>{
+    const value=$(id).value;action(()=>{if(object())object()[key]=value;});
+    if(key==='font')ensureFont(value).then(update).catch(()=>{toast('フォントを読み込めませんでした。接続中に再度お試しください。');update();});
+  });
+  bindControl('bubbleFill',v=>{if(object())object().fill=v;});
+  bindControl('bubbleBorder',v=>{if(object())object().borderColor=v;});
+  bindControl('outlineColor',v=>{if(object())object().outlineColor=v;});
+  bindControl('outlineWidth',v=>{if(object())object().outline=Number(v)/100;});
+  bindControl('bubbleRatio',v=>{if(object())object().ratio=Number(v)/100;});
+  bindControl('bubbleTextSize',v=>{if(object())object().textScale=Number(v)/1000;});
   $('overlaySelect').addEventListener('change', () => { finishEdit(); selectedObject = $('overlaySelect').value; update(); });
-  bindControl('textContent', value => { if (object()) object().text = value.slice(0, 40); });
+  bindControl('textContent', value => { if (object()) object().text = value.slice(0, 80); });
   bindControl('objectSize', value => { if (object()) object().size = Number(value) / 100; });
   bindControl('objectAngle', value => { if (object()) object().angle = Number(value); });
   bindControl('objectX', value => { if (object()) object().x = Number(value) / 100; });
@@ -487,6 +601,7 @@
     finishEdit(); if (state.panels.slice(0, state.photoCount).some(p => !p.asset) || loading || exporting) return;
     exporting = true; sync();
     try {
+      await Promise.all(state.objects.filter(o=>['text','sound','bubble'].includes(o.type)).map(o=>ensureFont(o.font)));
       const out = document.createElement('canvas'); [out.width, out.height] = dimension();
       render(out.getContext('2d'), out.width, out.height, false);
       const blob = await new Promise((resolve, reject) => out.toBlob(value => value ? resolve(value) : reject(new Error('Export failed')), 'image/png'));
@@ -500,7 +615,7 @@
       $('share').hidden = !shareable;
       $('shareNote').textContent = shareable ? '写真への保存は、共有メニュー内で完了してください。' : '画像を長押しして保存するか、PNGをダウンロードしてください。';
       $('saveDialog').showModal();
-    } catch (error) { toast('画像を作成できませんでした。ほかのアプリを閉じて、もう一度お試しください。'); }
+    } catch (error) { toast('画像を作成できませんでした。フォントの読み込み状態や空きメモリを確認して、もう一度お試しください。'); }
     finally { exporting = false; sync(); }
   });
   $('share').addEventListener('click', async () => {
@@ -520,4 +635,5 @@
   }
   window.addEventListener('resize', requestDraw);
   update(); setupOffline();
+  Promise.allSettled(Object.keys(FONT_DEFS).map(ensureFont)).then(update);
 })();
