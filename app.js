@@ -16,7 +16,7 @@
   const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   const changed = (a, b) => JSON.stringify(a) !== JSON.stringify(b);
   const object = () => state.objects.find(item => item.id === selectedObject);
-  const dimension = () => sizes[state.aspect];
+  const dimension = () => state.photoCount === 1 && state.aspect === 'square' ? [1024,1024] : state.photoCount === 1 && state.aspect === 'portrait' ? [832,1216] : sizes[state.aspect];
 
   function toast(message) {
     $('toast').textContent = message;
@@ -63,6 +63,8 @@
     $('export').textContent = exporting ? '作成中…' : '画像を保存 ↗';
     $('saveSummary').textContent = loading ? '画像を読み込み中…' : count === state.photoCount ? `${state.photoCount}枚の画像、準備OK。` : `あと${state.photoCount - count}枚、画像を選びましょう`;
     $('sizeLabel').textContent = dimension().join(' × ');
+    $('squareOption').textContent = state.photoCount === 1 ? '正方形 1024 × 1024' : '正方形 1 : 1';
+    $('portraitOption').textContent = state.photoCount === 1 ? '縦長 832 × 1216' : '縦長 2 : 3';
     $('canvasHint').textContent = count === 0 ? `画像を${state.photoCount}枚選んでください` : activeTab === 'decor' ? '装飾を1本指で移動・2本指で拡大／縮小' : '画像を1本指で移動・2本指で拡大／縮小';
     canvas.classList.toggle('portrait', state.aspect === 'portrait');
     canvas.classList.toggle('square', state.aspect === 'square');
@@ -149,6 +151,7 @@
     partnerControl.disabled=!!o.group||!candidates.length;
     $('joinBubbles').disabled=!!o.group||!candidates.length;$('unlinkBubbles').hidden=!o.group;$('moveLinkedLabel').hidden=!o.group;
     $('bubbleLinkHint').textContent=o.group?'連結中。背景色・濃さ・輪郭線は2つ共通、文章と文字設定は個別です。':candidates.length?'相手を下に配置し、収まるよう調整します。接合部分の線は消えます。':'吹き出しをもう1つ追加すると連結できます。';
+    $('bubblePadding').value=Math.round((o.padding??.03)*100); $('bubblePaddingValue').textContent=Math.round((o.padding??.03)*100)+'%';
     $('bubbleRatio').value=Math.round((o.ratio||.65)*100); $('bubbleTextSize').value=Math.round((o.textScale||.04)*1000);
     $('outlineColor').value=o.outlineColor||'#ffffff'; $('outlineWidth').value=Math.round((o.outline??.09)*100);
     if (document.activeElement !== $('textContent')) $('textContent').value = o.text || '';
@@ -339,28 +342,49 @@
   }
 
   function bubbleTextLayout(c,o,bw,bh) {
-    const short=Math.min(...dimension());
+    const short=Math.min(...dimension()), padding=clamp(o.padding??.03,0,.25);
     let fontSize=short*(o.textScale||.04),lines=[],columns=[];
-    const vertical=o.writing==='vertical',maxW=bw*.66,maxH=bh*.58;
-    for(let attempt=0;attempt<100;attempt++) {
+    const vertical=o.writing==='vertical', maxW=bw*(1-2*padding),maxH=bh*(1-2*padding);
+    const paragraphs=(o.text||'').normalize('NFC').split('\n'),preserveBreaks=paragraphs.length>1;
+    // Test against the actual curved outline at identity coordinates. This keeps
+    // lettering inside the shape while using the available area near its edges.
+    c.save();c.resetTransform();bubblePath(c,{...o,tail:'none'},{bw,bh,tail:0});
+    const insideBox=(x,y,width,height)=>{
+      const inset=(o.borderWidth??2)*short/2400;
+      for(const dx of [-width/2,0,width/2])for(const dy of [-height/2,0,height/2]) {
+        const px=x+dx,py=y+dy;
+        if(!c.isPointInPath(px+Math.sign(px)*inset,py+Math.sign(py)*inset))return false;
+      }
+      return true;
+    };
+    for(let attempt=0;attempt<160;attempt++) {
       c.font=fontSpec(o,fontSize);
+      let fits=false;
       if(vertical) {
         columns=[];const perColumn=Math.max(1,Math.floor(maxH/(fontSize*1.12)));
-        const paragraphs=(o.text||'').normalize('NFC').split('\n');
-        const preserveBreaks=paragraphs.length>1&&Math.max(...paragraphs.map(line=>Array.from(line).length))<=12;
         for(const paragraph of paragraphs) {
           const chars=Array.from(paragraph);
           if(!chars.length)columns.push([]);
-          if(preserveBreaks&&chars.length)columns.push(chars);
-          else {const chunks=Math.max(1,Math.ceil(chars.length/perColumn)),balanced=Math.max(1,Math.ceil(chars.length/chunks));for(let i=0;i<chars.length;i+=balanced)columns.push(chars.slice(i,i+balanced));}
+          else if(preserveBreaks)columns.push(chars);
+          else for(let i=0;i<chars.length;i+=perColumn)columns.push(chars.slice(i,i+perColumn));
         }
-        if(columns.length*fontSize*1.35<=maxW && Math.max(0,...columns.map(col=>col.length))*fontSize*1.12<=maxH)break;
+        const rows=Math.max(0,...columns.map(col=>col.length));
+        fits=columns.length*fontSize*1.35<=maxW && rows*fontSize*1.12<=maxH;
+        if(fits)fits=columns.every((col,i)=>col.every((char,j)=>{
+          let x=((columns.length-1)/2-i)*fontSize*1.35,y=(j-(rows-1)/2)*fontSize*1.12;
+          if('、。，．'.includes(char)){x+=fontSize*.27;y-=fontSize*.27;}
+          if('ぁぃぅぇぉゃゅょっァィゥェォャュョッヵヶ'.includes(char)){x+=fontSize*.1;y-=fontSize*.1;}
+          return insideBox(x,y,fontSize*1.15,fontSize*1.15);
+        }));
       } else {
-        lines=wrapBubble(c,o.text||'',maxW);
-        if(lines.length*fontSize*1.35<=maxH)break;
+        lines=preserveBreaks?paragraphs:wrapBubble(c,paragraphs[0],maxW);
+        fits=lines.length*fontSize*1.35<=maxH && lines.every(line=>c.measureText(line).width<=maxW);
+        if(fits)fits=lines.every((line,i)=>insideBox(0,(i-(lines.length-1)/2)*fontSize*1.35,c.measureText(line).width+fontSize*.15,fontSize*1.15));
       }
-      fontSize*=.94;
+      if(fits)break;
+      fontSize*=.96;
     }
+    c.restore();
     return {fontSize,lines,columns,vertical};
   }
   function drawBubbleText(c,o,m) {
@@ -532,7 +556,36 @@
     const pw = Math.round(w * scale), ph = Math.round(h * scale);
     if (canvas.width !== pw || canvas.height !== ph) { canvas.width = pw; canvas.height = ph; }
     render(ctx, pw, ph, true);
+    updateFloatingPreview();
   }
+  let floatingCollapsed=false, floatingRaf=0;
+  function updateFloatingPreview() {
+    const box=canvas.getBoundingClientRect(), viewport=window.visualViewport;
+    const above=box.bottom <= (viewport?.offsetTop||0)+8;
+    const panel=$('floatingPreview'), mini=$('miniPreview');
+    panel.hidden=!above;
+    if(!above)return;
+    panel.style.top='calc('+((viewport?.offsetTop||0)+8)+'px + env(safe-area-inset-top))';
+    mini.style.maxHeight=Math.max(60,Math.min(210,(viewport?.height||window.innerHeight||700)*.26))+'px';
+    $('miniPreviewBody').hidden=floatingCollapsed;
+    $('toggleMiniPreview').textContent=floatingCollapsed?'プレビューを開く':'折りたたむ';
+    $('toggleMiniPreview').setAttribute('aria-expanded',String(!floatingCollapsed));
+    $('miniSize').textContent=dimension().join(' × ');
+    if(floatingCollapsed)return;
+    const scale=Math.min(1,420/Math.max(canvas.width,canvas.height));
+    const mw=Math.max(1,Math.round(canvas.width*scale)),mh=Math.max(1,Math.round(canvas.height*scale));
+    if(mini.width!==mw||mini.height!==mh){mini.width=mw;mini.height=mh;}
+    const mc=mini.getContext('2d');mc.clearRect(0,0,mw,mh);mc.drawImage(canvas,0,0,mw,mh);
+  }
+  function requestFloatingPreview() {
+    if(!floatingRaf)floatingRaf=requestAnimationFrame(()=>{floatingRaf=0;updateFloatingPreview();});
+  }
+  $('toggleMiniPreview').addEventListener('click',()=>{floatingCollapsed=!floatingCollapsed;updateFloatingPreview();});
+  $('returnToPreview').addEventListener('click',()=>canvas.scrollIntoView({block:'center',behavior:'auto'}));
+  window.addEventListener('scroll',requestFloatingPreview,{passive:true});
+  window.addEventListener('resize',requestFloatingPreview,{passive:true});
+  if(window.visualViewport){window.visualViewport.addEventListener('resize',requestFloatingPreview,{passive:true});window.visualViewport.addEventListener('scroll',requestFloatingPreview,{passive:true});}
+  if(typeof ResizeObserver!=='undefined')new ResizeObserver(requestFloatingPreview).observe(canvas);
   function bindControl(id, apply) {
     const el = $(id);
     el.addEventListener('input', () => { if (!editBefore) editBefore = copy(state); apply(el.value); update(); });
@@ -609,7 +662,7 @@
     action(() => {
       const o = { id: 'o' + nextId++, type, x: .5, y: .5, size: type === 'arrow' ? .25 : .16, angle: type === 'arrow' ? -35 : 0, color: type === 'arrow' ? '#ee5545' : '#252635', text: type === 'text' ? 'ここに文字' : '' };
       Object.assign(o,{font:'system',outlineColor:'#ffffff',outline:.09});
-      if(type==='bubble')Object.assign(o,{size:.2,text:'ここにセリフ',font:'zen',shape:'organic',tail:'none',ratio:1.2,textScale:.04,fill:'#e2e2e2',fillOpacity:.6,borderColor:'#111111',borderWidth:2,roughness:.04,writing:'vertical',textHalo:true,color:'#111111',moveTogether:true});
+      if(type==='bubble')Object.assign(o,{size:.2,text:'ここにセリフ',font:'zen',shape:'organic',tail:'none',ratio:1.2,textScale:.04,fill:'#e2e2e2',fillOpacity:.6,borderColor:'#111111',borderWidth:2,roughness:.04,writing:'vertical',padding:.03,textHalo:true,color:'#111111',moveTogether:true});
       if(type==='sound')Object.assign(o,{size:.23,text:'ドン！',font:'zen',color:'#ed493e',angle:-12,outline:.16});
       if(type==='stamp')Object.assign(o,{size:.2,symbol:'star',color:'#f5bf34',outline:.06});
       state.objects.push(o); selectedObject = o.id;
@@ -641,6 +694,7 @@
   bindControl('outlineColor',v=>{if(object())object().outlineColor=v;});
   bindControl('outlineWidth',v=>{if(object())object().outline=Number(v)/100;});
   bindControl('bubbleRatio',v=>{if(object())object().ratio=Number(v)/100;});
+  bindControl('bubblePadding',v=>{if(object())object().padding=clamp(Number(v)/100,0,.25);});
   bindControl('bubbleTextSize',v=>{if(object())object().textScale=Number(v)/1000;});
   $('overlaySelect').addEventListener('change', () => { finishEdit(); selectedObject = $('overlaySelect').value; update(); });
   bindControl('textContent', value => { if (object()) object().text = value.slice(0, 80); });
