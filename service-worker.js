@@ -1,5 +1,5 @@
 'use strict';
-const CACHE = 'pair-comic-v5-20261123';
+const CACHE = 'pair-comic-v6-20261123';
 const FILES = ['./', './index.html', './style.css', './app.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './Yomogi-Regular.ttf', './ZenMaruGothic-Regular.ttf', './KiwiMaru-Regular.ttf', './ZenKakuGothicNew-Regular.ttf', './FONT-LICENSES.txt', './OFL-yomogi.txt', './OFL-zenmarugothic.txt', './OFL-kiwimaru.txt', './OFL-zenkakugothicnew.txt'];
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES)).then(() => self.skipWaiting()));

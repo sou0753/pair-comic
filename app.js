@@ -63,7 +63,7 @@
     $('export').textContent = exporting ? '作成中…' : '画像を保存 ↗';
     $('saveSummary').textContent = loading ? '画像を読み込み中…' : count === state.photoCount ? `${state.photoCount}枚の画像、準備OK。` : `あと${state.photoCount - count}枚、画像を選びましょう`;
     $('sizeLabel').textContent = dimension().join(' × ');
-    $('canvasHint').textContent = count === 0 ? `画像を${state.photoCount}枚選んでください` : activeTab === 'decor' ? '矢印・文字は指で動かせます' : '画像を指で移動・2本指で拡大';
+    $('canvasHint').textContent = count === 0 ? `画像を${state.photoCount}枚選んでください` : activeTab === 'decor' ? '装飾を1本指で移動・2本指で拡大／縮小' : '画像を1本指で移動・2本指で拡大／縮小';
     canvas.classList.toggle('portrait', state.aspect === 'portrait');
     canvas.classList.toggle('square', state.aspect === 'square');
     state.panels.forEach((panel, i) => {
@@ -77,6 +77,7 @@
     document.querySelectorAll('[data-layout]').forEach(btn => { const active = btn.dataset.layout === state.layout; btn.classList.toggle('selected', active); btn.setAttribute('aria-pressed', active); });
     document.querySelectorAll('[data-photo]').forEach(btn => { btn.hidden = Number(btn.dataset.photo) >= state.photoCount; btn.setAttribute('aria-pressed', Number(btn.dataset.photo) === activePhoto); });
     document.querySelectorAll('[data-count]').forEach(btn => btn.setAttribute('aria-pressed', Number(btn.dataset.count) === state.photoCount));
+    $('basicLayouts').hidden = state.photoCount === 1; $('swap').hidden = state.photoCount === 1; $('gap').disabled = state.photoCount === 1;
     $('gridLayout').hidden = state.photoCount !== 4;
     $('threeLayouts').hidden = state.photoCount !== 3;
     const side = state.photoCount === 3 && ['right-main','left-main'].includes(state.layout);
@@ -95,7 +96,7 @@
     $('readingHint').textContent = state.layout === 'top-one' ? (right ? '①上 → ②右下 → ③左下' : '①上 → ②左下 → ③右下') : (right ? '①右上 → ②左上 → ③下' : '①左上 → ②右上 → ③下');
     if(side) $('readingHint').textContent = state.layout==='right-main' ? '①右の大枠 → ②左上 → ③左下' : '①左の大枠 → ②右上 → ③右下';
     $('splitControls').hidden = state.photoCount !== 2;
-    $('equalHint').hidden = state.photoCount === 2 || story;
+    $('equalHint').hidden = state.photoCount <= 2 || story;
     $('swap').textContent = state.photoCount === 2 ? '画像を入れ替え ⇄' : '順番をずらす ↻';
     $('backgroundOptions').hidden = state.backgroundStyle === 'solid';
     $('gradientOptions').hidden = state.backgroundStyle !== 'gradient';
@@ -108,7 +109,7 @@
     $('zoomValue').textContent = `${Math.round(p.zoom * 100)}%`;
     $('effectValue').textContent = `${Math.round(p.strength * 100)}%`;
     $('zoom').disabled = !p.asset;
-    $('resetCrop').disabled = !p.asset;
+    $('resetCrop').disabled = !p.asset; $('fitPhoto').disabled = !p.asset; $('zoom').min = Math.min(1, minimumZoom(p, rects()[activePhoto]) * 100);
     document.querySelectorAll('[data-nudge]').forEach(btn => btn.disabled = !p.asset);
     $('overlayCount').textContent = `${state.objects.length} / 12`;
     ['addArrow','addText','addBubble','addSound','addStamp'].forEach(id=>$(id).disabled=state.objects.length>=12);
@@ -161,6 +162,7 @@
   function rects() {
     const [w, h] = dimension(), unit = Math.min(w, h) / 1200;
     const b = state.border * unit, g = state.gap * unit, iw = w - b * 2, ih = h - b * 2;
+    if(state.photoCount===1) return [{x:b,y:b,w:iw,h:ih}];
     if(state.photoCount===3 && ['right-main','left-main'].includes(state.layout)) {
       const mainW=(iw-g)*state.mainWidth,smallW=iw-g-mainW,topH=(ih-g)*state.rowSplit;
       const right=state.layout==='right-main',mainX=right?b+smallW+g:b,smallX=right?b:b+mainW+g;
@@ -186,12 +188,16 @@
     if (state.layout === 'horizontal') { const first = (iw - g) * state.split; return [{ x: b, y: b, w: first, h: ih }, { x: b + first + g, y: b, w: iw - g - first, h: ih }]; }
     const first = (ih - g) * state.split; return [{ x: b, y: b, w: iw, h: first }, { x: b, y: b + first + g, w: iw, h: ih - g - first }];
   }
+  function minimumZoom(p, r) {
+    const img=assets.get(p.asset);
+    return img ? Math.min(.01, Math.min(r.w/img.width,r.h/img.height)/Math.max(r.w/img.width,r.h/img.height)) : .01;
+  }
   function geometry(p, r) {
     const img = assets.get(p.asset);
     if (!img) return null;
     const scale = Math.max(r.w / img.width, r.h / img.height) * p.zoom;
     const w = img.width * scale, h = img.height * scale;
-    return { img, w, h, overflowX: Math.max(0, w - r.w), overflowY: Math.max(0, h - r.h), x: r.x - Math.max(0, w - r.w) * p.x, y: r.y - Math.max(0, h - r.h) * p.y };
+    return { img, w, h, overflowX: w-r.w, overflowY: h-r.h, x: r.x-(w-r.w)*p.x, y: r.y-(h-r.h)*p.y };
   }
   function placeholder(c, r, index) {
     const gradient = c.createLinearGradient(r.x, r.y, r.x + r.w, r.y + r.h);
@@ -578,6 +584,10 @@
   bindControl('zoom', value => { state.panels[activePhoto].zoom = Number(value) / 100; });
   bindControl('effectStrength', value => { state.panels[activePhoto].strength = Number(value) / 100; });
   $('effect').addEventListener('change', () => action(() => { state.panels[activePhoto].effect = $('effect').value; }));
+  $('fitPhoto').addEventListener('click', () => action(() => {
+    const p=state.panels[activePhoto],r=rects()[activePhoto],img=assets.get(p.asset); if(!img)return;
+    Object.assign(p,{zoom:Math.min(r.w/img.width,r.h/img.height)/Math.max(r.w/img.width,r.h/img.height),x:.5,y:.5});
+  }));
   $('resetCrop').addEventListener('click', () => action(() => Object.assign(state.panels[activePhoto], { zoom: 1, x: .5, y: .5 })));
   document.querySelectorAll('[data-nudge]').forEach(btn => btn.addEventListener('click', () => action(() => {
     const p = state.panels[activePhoto], dir = btn.dataset.nudge;
@@ -684,10 +694,11 @@
     if (!gesture) return;
     const pts = [...pointers.values()], p = state.panels[gesture.index];
     gesture.start = pts[0]; gesture.panel = copy(p);
-    if (gesture.type === 'object') {gesture.origin=copy(object());gesture.groupOrigins=(object().group&&object().moveTogether!==false?bubbleMembers(object()):[object()]).map(item=>({id:item.id,x:item.x,y:item.y}));}
-    if (pts.length >= 2 && gesture.type === 'photo') {
+    if (gesture.type === 'object') {gesture.origin=copy(object());gesture.groupOrigins=(object().group&&object().moveTogether!==false?bubbleMembers(object()):[object()]).map(item=>({id:item.id,x:item.x,y:item.y,size:item.size,textScale:item.textScale}));}
+    if (pts.length >= 2) {
       gesture.distance = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
       gesture.mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+      if (gesture.type !== 'photo') return;
       const r = rects()[gesture.index], g = geometry(p, r);
       gesture.focal = { x: (gesture.mid.x - g.x) / g.w, y: (gesture.mid.y - g.y) / g.h };
     }
@@ -718,19 +729,30 @@
     const pts = [...pointers.values()], [w, h] = dimension();
     if (gesture.type === 'object') {
       const o = object(); if (!o) return;
-      moveDecoration(o,gesture.origin.x+(pts[0].x-gesture.start.x)/w,gesture.origin.y+(pts[0].y-gesture.start.y)/h,gesture.groupOrigins);
+      if(pts.length===2) {
+        const distance=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
+        const origins=gesture.groupOrigins;
+        const low=Math.max(...origins.map(b=>Math.max(.05/b.size,b.textScale?.015/b.textScale:0)));
+        const high=Math.min(...origins.map(b=>Math.min(.6/b.size,b.textScale?.08/b.textScale:Infinity)));
+        const factor=clamp(distance/gesture.distance,low,high);
+        const mid={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
+        const positions=origins.map(b=>({x:(mid.x+(b.x*w-gesture.mid.x)*factor)/w,y:(mid.y+(b.y*h-gesture.mid.y)*factor)/h}));
+        const dx=Math.max(0,-Math.min(...positions.map(p=>p.x)))+Math.min(0,1-Math.max(...positions.map(p=>p.x)));
+        const dy=Math.max(0,-Math.min(...positions.map(p=>p.y)))+Math.min(0,1-Math.max(...positions.map(p=>p.y)));
+        origins.forEach((b,i)=>{const item=state.objects.find(v=>v.id===b.id);if(!item)return;item.size=b.size*factor;item.x=positions[i].x+dx;item.y=positions[i].y+dy;if(b.textScale)item.textScale=b.textScale*factor;});
+      } else moveDecoration(o,gesture.origin.x+(pts[0].x-gesture.start.x)/w,gesture.origin.y+(pts[0].y-gesture.start.y)/h,gesture.groupOrigins);
     } else {
       const p = state.panels[gesture.index], r = rects()[gesture.index];
       if (pts.length === 2) {
         const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-        p.zoom = clamp(gesture.panel.zoom * distance / gesture.distance, 1, 4);
+        p.zoom = clamp(gesture.panel.zoom * distance / gesture.distance, minimumZoom(p,r), 4);
         const g = geometry(p, r), mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
-        p.x = g.overflowX > 0 ? clamp((r.x + gesture.focal.x * g.w - mid.x) / g.overflowX, 0, 1) : .5;
-        p.y = g.overflowY > 0 ? clamp((r.y + gesture.focal.y * g.h - mid.y) / g.overflowY, 0, 1) : .5;
+        p.x = Math.abs(g.overflowX) > .001 ? clamp((r.x + gesture.focal.x * g.w - mid.x) / g.overflowX, 0, 1) : .5;
+        p.y = Math.abs(g.overflowY) > .001 ? clamp((r.y + gesture.focal.y * g.h - mid.y) / g.overflowY, 0, 1) : .5;
       } else {
         const g = geometry(p, r);
-        p.x = g.overflowX > 0 ? clamp(gesture.panel.x - (pts[0].x - gesture.start.x) / g.overflowX, 0, 1) : .5;
-        p.y = g.overflowY > 0 ? clamp(gesture.panel.y - (pts[0].y - gesture.start.y) / g.overflowY, 0, 1) : .5;
+        p.x = Math.abs(g.overflowX) > .001 ? clamp(gesture.panel.x - (pts[0].x - gesture.start.x) / g.overflowX, 0, 1) : .5;
+        p.y = Math.abs(g.overflowY) > .001 ? clamp(gesture.panel.y - (pts[0].y - gesture.start.y) / g.overflowY, 0, 1) : .5;
       }
     }
     update();
