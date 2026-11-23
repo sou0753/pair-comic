@@ -123,7 +123,7 @@
     // Use textContent for user-entered text; never interpret it as markup.
     select.replaceChildren(...state.objects.map((item, i) => {
       const opt = document.createElement('option'); opt.value = item.id;
-      opt.textContent = `${i + 1}. ${({arrow:'矢印',stamp:'スタンプ',bubble:'吹き出し',sound:'効果音文字'})[item.type] || item.text || '文字'}`;
+      opt.textContent = `${i + 1}. ${item.type==='bubble' ? ((item.group?'連結・':'')+'吹き出し '+(item.text||'').replace(/\n/g,' ').slice(0,12)) : ({arrow:'矢印',stamp:'スタンプ',sound:'効果音文字'})[item.type] || item.text || '文字'}`;
       return opt;
     }));
     select.value = o.id;
@@ -135,6 +135,19 @@
     $('fontStatus').textContent=fontStates.get(o.font)==='loading'?'フォントを読み込み中…':fontStates.get(o.font)==='failed'?'フォントを取得できません。接続中に選び直してください。':'';
     $('stampSymbol').value=o.symbol||'star'; $('bubbleShape').value=o.shape||'oval'; $('bubbleTail').value=o.tail||'bottom';
     $('bubbleFill').value=o.fill||'#ffffff'; $('bubbleBorder').value=o.borderColor||'#252635';
+    $('roughnessControl').hidden=o.shape!=='organic';
+    $('bubbleOpacity').value=Math.round((o.fillOpacity??.6)*100);$('bubbleOpacityValue').textContent=Math.round((o.fillOpacity??.6)*100)+'%';
+    $('bubbleLineWidth').value=o.borderWidth??2;$('bubbleLineValue').textContent=o.borderWidth??2;
+    $('bubbleRoughness').value=Math.round((o.roughness??.04)*100);
+    $('bubbleWriting').value=o.writing||'horizontal';$('bubbleHalo').checked=o.textHalo!==false;
+    $('moveLinked').checked=o.moveTogether!==false;
+    const partnerControl=$('bubblePartner'),previousPartner=partnerControl.value;
+    const candidates=state.objects.filter(item=>item.type==='bubble'&&item.id!==o.id&&!item.group);
+    partnerControl.replaceChildren(...candidates.map(item=>{const option=document.createElement('option');option.value=item.id;option.textContent=(state.objects.indexOf(item)+1)+'. '+(item.text||'吹き出し').slice(0,16);return option;}));
+    if(candidates.some(item=>item.id===previousPartner))partnerControl.value=previousPartner;else if(candidates.length)partnerControl.value=candidates[0].id;
+    partnerControl.disabled=!!o.group||!candidates.length;
+    $('joinBubbles').disabled=!!o.group||!candidates.length;$('unlinkBubbles').hidden=!o.group;$('moveLinkedLabel').hidden=!o.group;
+    $('bubbleLinkHint').textContent=o.group?'連結中。背景色・濃さ・輪郭線は2つ共通、文章と文字設定は個別です。':candidates.length?'相手を下に配置し、収まるよう調整します。接合部分の線は消えます。':'吹き出しをもう1つ追加すると連結できます。';
     $('bubbleRatio').value=Math.round((o.ratio||.65)*100); $('bubbleTextSize').value=Math.round((o.textScale||.04)*1000);
     $('outlineColor').value=o.outlineColor||'#ffffff'; $('outlineWidth').value=Math.round((o.outline??.09)*100);
     if (document.activeElement !== $('textContent')) $('textContent').value = o.text || '';
@@ -255,14 +268,10 @@
     if(o.type==='arrow')return {w:short*o.size*2,h:short*o.size*.65};
     if(o.type==='stamp')return {w:short*o.size,h:short*o.size};
     if(o.type==='bubble') {
-      const bw=short*o.size*2, bh=bw*(o.ratio||.65), tail=o.tail==='none'?0:Math.min(bw,bh)*.28;
-      let fontSize=short*(o.textScale||.04),lines=[];
-      for(let n=0;n<90;n++) {
-        c.font=fontSpec(o,fontSize);lines=wrapBubble(c,o.text||'',bw*.69);
-        if(lines.length*fontSize*1.35<=bh*.6)break;
-        fontSize*=.94;
-      }
-      return {w:bw+(['left','right'].includes(o.tail)?tail*2:0),h:bh+(['top','bottom'].includes(o.tail)?tail*2:0),bw,bh,tail,fontSize,lines};
+      const bw=short*o.size*2,bh=bw*(o.ratio||.65),tail=o.tail==='none'?0:Math.min(bw,bh)*.28;
+      const rough=o.shape==='organic'?(o.roughness??.04):0;
+      const layout=bubbleTextLayout(c,o,bw,bh);
+      return {w:bw*(1+rough*1.6)+(['left','right'].includes(o.tail)?tail*2:0),h:bh*(1+rough*1.6)+(['top','bottom'].includes(o.tail)?tail*2:0),bw,bh,tail,...layout};
     }
     const fontSize=short*o.size*.38;
     c.font=fontSpec(o,fontSize);
@@ -277,7 +286,13 @@
     for(let j=4;j<=68;j++) {
       const i=j%n,angle=i*Math.PI*2/n;
       let x,y;
-      if(o.shape==='round') {const power=2/5;x=rx*Math.sign(Math.cos(angle))*Math.pow(Math.abs(Math.cos(angle)),power);y=ry*Math.sign(Math.sin(angle))*Math.pow(Math.abs(Math.sin(angle)),power);}
+      if(o.shape==='organic') {
+        const seed=Array.from(o.id||'bubble').reduce((sum,char)=>sum+char.charCodeAt(0),0)*.37;
+        const power=.63,rough=o.roughness??.04;
+        const jitter=1+rough*(Math.sin(angle*3+seed)*.65+Math.cos(angle*5-seed)*.35);
+        x=rx*Math.sign(Math.cos(angle))*Math.pow(Math.abs(Math.cos(angle)),power)*jitter;
+        y=ry*Math.sign(Math.sin(angle))*Math.pow(Math.abs(Math.sin(angle)),power)*(1+rough*Math.sin(angle*3-seed)*.8);
+      } else if(o.shape==='round') {const power=2/5;x=rx*Math.sign(Math.cos(angle))*Math.pow(Math.abs(Math.cos(angle)),power);y=ry*Math.sign(Math.sin(angle))*Math.pow(Math.abs(Math.sin(angle)),power);}
       else {const radius=o.shape==='burst' && i%2 ? .83:1;x=rx*Math.cos(angle)*radius;y=ry*Math.sin(angle)*radius;}
       if(tipIndex!==undefined && i===tipIndex) {x=(rx+m.tail)*Math.cos(angle);y=(ry+m.tail)*Math.sin(angle);}
       if(j===4)c.moveTo(x,y);else c.lineTo(x,y);
@@ -306,15 +321,138 @@
     } else if(o.type==='stamp') {
       stampPath(c,o,m);c.lineWidth=Math.max(2,m.w*(o.outline??.06));if(o.outline!==0)c.stroke();c.fill();
     } else if(o.type==='bubble') {
-      bubblePath(c,o,m);c.fillStyle=o.fill||'#ffffff';c.strokeStyle=o.borderColor||'#252635';c.lineWidth=Math.max(2,Math.min(w,h)*.003);c.fill();c.stroke();
-      c.font=fontSpec(o,m.fontSize);c.fillStyle=o.color;c.textAlign='center';c.textBaseline='middle';
-      m.lines.forEach((line,i)=>c.fillText(line,0,(i-(m.lines.length-1)/2)*m.fontSize*1.35));
+      bubblePath(c,o,m);c.fillStyle=o.fill||'#e2e2e2';c.strokeStyle=o.borderColor||'#111111';c.lineWidth=(o.borderWidth??2)*Math.min(w,h)/1200;
+      c.save();c.globalAlpha=o.fillOpacity??.6;c.fill();c.restore();c.stroke();
+      drawBubbleText(c,o,m);
     } else {
       c.font=fontSpec(o,m.fontSize);c.textAlign='center';c.textBaseline='middle';c.lineWidth=Math.max(1,m.fontSize*(o.outline??.09));
       m.lines.forEach((line,i)=>{const y=(i-(m.lines.length-1)/2)*m.fontSize*1.35;if(o.outline!==0)c.strokeText(line,0,y);c.fillText(line,0,y);});
     }
     if(editor&&activeTab==='decor'&&o.id===selectedObject) {c.strokeStyle='#7254df';c.lineWidth=Math.min(w,h)*.0025;c.setLineDash([10,6]);c.strokeRect(-m.w/2-9,-m.h/2-9,m.w+18,m.h+18);}
     c.restore();
+  }
+
+  function bubbleTextLayout(c,o,bw,bh) {
+    const short=Math.min(...dimension());
+    let fontSize=short*(o.textScale||.04),lines=[],columns=[];
+    const vertical=o.writing==='vertical',maxW=bw*.66,maxH=bh*.58;
+    for(let attempt=0;attempt<100;attempt++) {
+      c.font=fontSpec(o,fontSize);
+      if(vertical) {
+        columns=[];const perColumn=Math.max(1,Math.floor(maxH/(fontSize*1.12)));
+        const paragraphs=(o.text||'').normalize('NFC').split('\n');
+        const preserveBreaks=paragraphs.length>1&&Math.max(...paragraphs.map(line=>Array.from(line).length))<=12;
+        for(const paragraph of paragraphs) {
+          const chars=Array.from(paragraph);
+          if(!chars.length)columns.push([]);
+          if(preserveBreaks&&chars.length)columns.push(chars);
+          else {const chunks=Math.max(1,Math.ceil(chars.length/perColumn)),balanced=Math.max(1,Math.ceil(chars.length/chunks));for(let i=0;i<chars.length;i+=balanced)columns.push(chars.slice(i,i+balanced));}
+        }
+        if(columns.length*fontSize*1.35<=maxW && Math.max(0,...columns.map(col=>col.length))*fontSize*1.12<=maxH)break;
+      } else {
+        lines=wrapBubble(c,o.text||'',maxW);
+        if(lines.length*fontSize*1.35<=maxH)break;
+      }
+      fontSize*=.94;
+    }
+    return {fontSize,lines,columns,vertical};
+  }
+  function drawBubbleText(c,o,m) {
+    c.save();c.globalAlpha=1;c.font=fontSpec(o,m.fontSize);c.fillStyle=o.color||'#111111';
+    c.strokeStyle='#ffffff';c.lineWidth=Math.max(1,m.fontSize*.15);c.lineJoin='round';c.textAlign='center';c.textBaseline='middle';
+    const glyph=(text,x,y,turn=0)=>{c.save();c.translate(x,y);if(turn)c.rotate(turn);if(o.textHalo!==false)c.strokeText(text,0,0);c.fillText(text,0,0);c.restore();};
+    if(m.vertical) {
+      const step=m.fontSize*1.12,cols=m.columns,rows=Math.max(0,...cols.map(col=>col.length));
+      cols.forEach((col,i)=>{
+        const x=((cols.length-1)/2-i)*m.fontSize*1.35;
+        col.forEach((char,j)=>{
+          let gx=x,gy=(j-(rows-1)/2)*step,turn=0;
+          if('、。，．'.includes(char)){gx+=m.fontSize*.27;gy-=m.fontSize*.27;}
+          if('ー―—…‥()（）「」『』【】［］｛｝〈〉《》'.includes(char))turn=Math.PI/2;
+          if('ぁぃぅぇぉゃゅょっァィゥェォャュョッヵヶ'.includes(char)){gx+=m.fontSize*.1;gy-=m.fontSize*.1;}
+          glyph(char,gx,gy,turn);
+        });
+      });
+    } else m.lines.forEach((line,i)=>glyph(line,0,(i-(m.lines.length-1)/2)*m.fontSize*1.35));
+    c.restore();
+  }
+  function bubbleStyle(o,key,value) {
+    if(!o)return;
+    const members=o.group?state.objects.filter(item=>item.type==='bubble'&&item.group===o.group):[o];
+    members.forEach(item=>{item[key]=value;});
+  }
+  function bubbleMembers(o) {return o&&o.group?state.objects.filter(item=>item.type==='bubble'&&item.group===o.group):o?[o]:[];}
+  function bubbleBounds(c,items) {
+    const [w,h]=dimension();let left=Infinity,top=Infinity,right=-Infinity,bottom=-Infinity;
+    items.forEach(o=>{const m=objectMetrics(c,o),a=o.angle*Math.PI/180;
+      const rx=(Math.abs(Math.cos(a))*m.w+Math.abs(Math.sin(a))*m.h)/2,ry=(Math.abs(Math.sin(a))*m.w+Math.abs(Math.cos(a))*m.h)/2;
+      left=Math.min(left,o.x*w-rx);right=Math.max(right,o.x*w+rx);top=Math.min(top,o.y*h-ry);bottom=Math.max(bottom,o.y*h+ry);
+    });return {left,top,right,bottom};
+  }
+  function linkBubbles(targetId) {
+    const first=object(),second=state.objects.find(item=>item.id===targetId);
+    if(!first||!second||first===second||first.type!=='bubble'||second.type!=='bubble'||first.group||second.group)return;
+    action(()=>{
+      const [w,h]=dimension();
+      first.group=second.group='g'+nextId++;
+      ['fill','fillOpacity','borderColor','borderWidth','moveTogether'].forEach(key=>{second[key]=first[key];});
+      second.angle=first.angle;
+      const m1=objectMetrics(ctx,first),m2=objectMetrics(ctx,second),a=first.angle*Math.PI/180;
+      const distance=(m1.bh+m2.bh)/2-Math.min(m1.bh,m2.bh)*.12;
+      second.x=first.x-Math.sin(a)*distance/w;second.y=first.y+Math.cos(a)*distance/h;
+      const members=[first,second],b=bubbleBounds(ctx,members),scale=Math.min(1,(w-40)/(b.right-b.left),(h-40)/(b.bottom-b.top));
+      if(scale<1) {second.x=first.x+(second.x-first.x)*scale;second.y=first.y+(second.y-first.y)*scale;members.forEach(o=>o.size*=scale);}
+      const fit=bubbleBounds(ctx,members);
+      const dx=fit.left<20?20-fit.left:fit.right>w-20?w-20-fit.right:0;
+      const dy=fit.top<20?20-fit.top:fit.bottom>h-20?h-20-fit.bottom:0;
+      members.forEach(o=>{o.x+=dx/w;o.y+=dy/h;});
+    });
+    toast('相手を下に配置して連結しました。文章はそれぞれ編集できます。');
+  }
+  function unlinkBubble(o) {if(o&&o.group){const group=o.group;state.objects.forEach(item=>{if(item.group===group)delete item.group;});}}
+  function moveDecoration(o,x,y,origins=null) {
+    if(!o)return;
+    const members=o.type==='bubble'&&o.group&&o.moveTogether!==false?bubbleMembers(o):[o];
+    const baselines=origins||members.map(item=>({id:item.id,x:item.x,y:item.y}));
+    const base=baselines.find(item=>item.id===o.id)||o;
+    let dx=x-base.x,dy=y-base.y;
+    dx=clamp(dx,-Math.min(...baselines.map(item=>item.x)),1-Math.max(...baselines.map(item=>item.x)));
+    dy=clamp(dy,-Math.min(...baselines.map(item=>item.y)),1-Math.max(...baselines.map(item=>item.y)));
+    members.forEach(item=>{const start=baselines.find(v=>v.id===item.id)||item;item.x=start.x+dx;item.y=start.y+dy;});
+  }
+  let unionMask=null,unionLayer=null;
+  function renderBubbleGroup(c,items,editor) {
+    const [w,h]=dimension(),style=items[0],b=bubbleBounds(c,items),stroke=(style.borderWidth??2)*Math.min(w,h)/1200;
+    const pad=stroke+3,left=Math.max(-pad,Math.floor(b.left-pad)),top=Math.max(-pad,Math.floor(b.top-pad));
+    const right=Math.min(w+pad,Math.ceil(b.right+pad)),bottom=Math.min(h+pad,Math.ceil(b.bottom+pad));
+    if(right<=left||bottom<=top)return;
+    const transform=c.getTransform(),scale=Math.max(.1,Math.min(1,Math.hypot(transform.a,transform.b)));
+    const pw=Math.ceil((right-left)*scale),ph=Math.ceil((bottom-top)*scale);
+    if(!unionMask){unionMask=document.createElement('canvas');unionLayer=document.createElement('canvas');}
+    unionMask.width=unionLayer.width=pw;unionMask.height=unionLayer.height=ph;
+    const mask=unionMask.getContext('2d'),layer=unionLayer.getContext('2d');
+    mask.setTransform(scale,0,0,scale,-left*scale,-top*scale);mask.fillStyle='#ffffff';
+    const metrics=items.map(o=>objectMetrics(c,o));
+    // A round neck connects separated bodies. The same mask owns all overlaps.
+    for(let i=1;i<items.length;i++) {
+      mask.lineCap='round';mask.strokeStyle='#ffffff';mask.lineWidth=Math.min(metrics[i-1].bw,metrics[i-1].bh,metrics[i].bw,metrics[i].bh)*.18;
+      mask.beginPath();mask.moveTo(items[i-1].x*w,items[i-1].y*h);mask.lineTo(items[i].x*w,items[i].y*h);mask.stroke();
+    }
+    items.forEach((o,i)=>{mask.save();mask.translate(o.x*w,o.y*h);mask.rotate(o.angle*Math.PI/180);bubblePath(mask,o,metrics[i]);mask.fill();mask.restore();});
+    layer.drawImage(unionMask,0,0);layer.globalCompositeOperation='source-in';layer.fillStyle=style.fill||'#e2e2e2';layer.fillRect(0,0,pw,ph);
+    c.save();c.globalAlpha=style.fillOpacity??.6;c.drawImage(unionLayer,left,top,pw/scale,ph/scale);c.restore();
+    // Morphological outer ring: union(dilated mask) minus union mask. No internal seam.
+    layer.globalCompositeOperation='source-over';layer.clearRect(0,0,pw,ph);
+    const radius=Math.max(.5,stroke*scale);
+    for(let i=0;i<16;i++){const angle=i*Math.PI/8;layer.drawImage(unionMask,Math.cos(angle)*radius,Math.sin(angle)*radius);}
+    layer.globalCompositeOperation='destination-out';layer.drawImage(unionMask,0,0);
+    layer.globalCompositeOperation='source-in';layer.fillStyle=style.borderColor||'#111111';layer.fillRect(0,0,pw,ph);
+    c.drawImage(unionLayer,left,top,pw/scale,ph/scale);
+    items.forEach((o,i)=>{
+      c.save();c.translate(o.x*w,o.y*h);c.rotate(o.angle*Math.PI/180);drawBubbleText(c,o,metrics[i]);
+      if(editor&&activeTab==='decor'&&o.id===selectedObject){c.strokeStyle='#7254df';c.lineWidth=Math.min(w,h)*.0025;c.setLineDash([10,6]);const m=metrics[i];c.strokeRect(-m.w/2-9,-m.h/2-9,m.w+18,m.h+18);}
+      c.restore();
+    });
   }
 
   function renderBackground(c, w, h) {
@@ -352,7 +490,11 @@
         c.save(); c.strokeStyle = '#7254df'; c.lineWidth = Math.min(w, h) * .004; c.strokeRect(r.x + c.lineWidth / 2, r.y + c.lineWidth / 2, r.w - c.lineWidth, r.h - c.lineWidth); c.restore();
       }
     });
-    state.objects.forEach(o => renderObject(c, o, editor)); renderStory(c); c.restore();
+    const drawnGroups=new Set();
+    state.objects.forEach(o=>{
+      if(o.type==='bubble'&&o.group&&bubbleMembers(o).length>1){if(!drawnGroups.has(o.group)){drawnGroups.add(o.group);renderBubbleGroup(c,bubbleMembers(o),editor);}}
+      else renderObject(c,o,editor);
+    });renderStory(c);c.restore();
   }
 
   function renderStory(c) {
@@ -457,7 +599,7 @@
     action(() => {
       const o = { id: 'o' + nextId++, type, x: .5, y: .5, size: type === 'arrow' ? .25 : .16, angle: type === 'arrow' ? -35 : 0, color: type === 'arrow' ? '#ee5545' : '#252635', text: type === 'text' ? 'ここに文字' : '' };
       Object.assign(o,{font:'system',outlineColor:'#ffffff',outline:.09});
-      if(type==='bubble')Object.assign(o,{size:.3,text:'ここにセリフ',font:'kiwi',shape:'oval',tail:'bottom',ratio:.65,textScale:.04,fill:'#ffffff',borderColor:'#252635'});
+      if(type==='bubble')Object.assign(o,{size:.2,text:'ここにセリフ',font:'zen',shape:'organic',tail:'none',ratio:1.2,textScale:.04,fill:'#e2e2e2',fillOpacity:.6,borderColor:'#111111',borderWidth:2,roughness:.04,writing:'vertical',textHalo:true,color:'#111111',moveTogether:true});
       if(type==='sound')Object.assign(o,{size:.23,text:'ドン！',font:'zen',color:'#ed493e',angle:-12,outline:.16});
       if(type==='stamp')Object.assign(o,{size:.2,symbol:'star',color:'#f5bf34',outline:.06});
       state.objects.push(o); selectedObject = o.id;
@@ -472,13 +614,20 @@
   $('addStamp').addEventListener('click',()=>addObject('stamp'));
   bindControl('mainWidth',v=>{state.mainWidth=Number(v)/100;});
   $('flipSide').addEventListener('click',()=>action(()=>{state.layout=state.layout==='right-main'?'left-main':'right-main';}));
-  const objectSelects={objectFont:'font',stampSymbol:'symbol',bubbleShape:'shape',bubbleTail:'tail'};
+  const objectSelects={objectFont:'font',stampSymbol:'symbol',bubbleShape:'shape',bubbleTail:'tail',bubbleWriting:'writing'};
   for(const [id,key] of Object.entries(objectSelects))$(id).addEventListener('change',()=>{
     const value=$(id).value;action(()=>{if(object())object()[key]=value;});
     if(key==='font')ensureFont(value).then(update).catch(()=>{toast('フォントを読み込めませんでした。接続中に再度お試しください。');update();});
   });
-  bindControl('bubbleFill',v=>{if(object())object().fill=v;});
-  bindControl('bubbleBorder',v=>{if(object())object().borderColor=v;});
+  bindControl('bubbleFill',v=>bubbleStyle(object(),'fill',v));
+  bindControl('bubbleBorder',v=>bubbleStyle(object(),'borderColor',v));
+  bindControl('bubbleOpacity',v=>bubbleStyle(object(),'fillOpacity',Number(v)/100));
+  bindControl('bubbleLineWidth',v=>bubbleStyle(object(),'borderWidth',Number(v)));
+  bindControl('bubbleRoughness',v=>{if(object())object().roughness=Number(v)/100;});
+  $('bubbleHalo').addEventListener('change',()=>{const checked=$('bubbleHalo').checked;action(()=>{if(object())object().textHalo=checked;});});
+  $('moveLinked').addEventListener('change',()=>{const checked=$('moveLinked').checked;action(()=>bubbleStyle(object(),'moveTogether',checked));});
+  $('joinBubbles').addEventListener('click',()=>linkBubbles($('bubblePartner').value));
+  $('unlinkBubbles').addEventListener('click',()=>action(()=>unlinkBubble(object())));
   bindControl('outlineColor',v=>{if(object())object().outlineColor=v;});
   bindControl('outlineWidth',v=>{if(object())object().outline=Number(v)/100;});
   bindControl('bubbleRatio',v=>{if(object())object().ratio=Number(v)/100;});
@@ -487,10 +636,10 @@
   bindControl('textContent', value => { if (object()) object().text = value.slice(0, 80); });
   bindControl('objectSize', value => { if (object()) object().size = Number(value) / 100; });
   bindControl('objectAngle', value => { if (object()) object().angle = Number(value); });
-  bindControl('objectX', value => { if (object()) object().x = Number(value) / 100; });
-  bindControl('objectY', value => { if (object()) object().y = Number(value) / 100; });
+  bindControl('objectX', value => { if(object())moveDecoration(object(),Number(value)/100,object().y); });
+  bindControl('objectY', value => { if(object())moveDecoration(object(),object().x,Number(value)/100); });
   bindControl('objectColor', value => { if (object()) object().color = value; });
-  $('deleteObject').addEventListener('click', () => action(() => { state.objects = state.objects.filter(o => o.id !== selectedObject); selectedObject = null; }));
+  $('deleteObject').addEventListener('click', () => action(() => { unlinkBubble(object()); state.objects = state.objects.filter(o => o.id !== selectedObject); selectedObject = null; }));
 
   async function loadPhoto(file, index) {
     if (!file) return;
@@ -535,7 +684,7 @@
     if (!gesture) return;
     const pts = [...pointers.values()], p = state.panels[gesture.index];
     gesture.start = pts[0]; gesture.panel = copy(p);
-    if (gesture.type === 'object') gesture.origin = copy(object());
+    if (gesture.type === 'object') {gesture.origin=copy(object());gesture.groupOrigins=(object().group&&object().moveTogether!==false?bubbleMembers(object()):[object()]).map(item=>({id:item.id,x:item.x,y:item.y}));}
     if (pts.length >= 2 && gesture.type === 'photo') {
       gesture.distance = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
       gesture.mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
@@ -569,8 +718,7 @@
     const pts = [...pointers.values()], [w, h] = dimension();
     if (gesture.type === 'object') {
       const o = object(); if (!o) return;
-      o.x = clamp(gesture.origin.x + (pts[0].x - gesture.start.x) / w, 0, 1);
-      o.y = clamp(gesture.origin.y + (pts[0].y - gesture.start.y) / h, 0, 1);
+      moveDecoration(o,gesture.origin.x+(pts[0].x-gesture.start.x)/w,gesture.origin.y+(pts[0].y-gesture.start.y)/h,gesture.groupOrigins);
     } else {
       const p = state.panels[gesture.index], r = rects()[gesture.index];
       if (pts.length === 2) {
