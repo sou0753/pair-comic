@@ -4,7 +4,7 @@
   const canvas = $('preview');
   const ctx = canvas.getContext('2d');
   const sizes = { landscape: [1800, 1200], square: [1600, 1600], portrait: [1200, 1800], wide: [1920, 1080] };
-  const freshPanel = () => ({ asset: null, zoom: 1, x: .5, y: .5, effect: 'none', strength: .6 });
+  const freshPanel = () => ({ asset: null, zoom: 1, x: .5, y: .5 });
   let state = { photoCount: 2, rowSplit: .5, mainWidth: .5, readingDirection: 'ltr', showNumbers: true, showFlow: true, backgroundStyle: 'solid', backgroundSecond: '#b5a1ee', gradientDirection: 'diagonal', patternSize: 36, layout: 'horizontal', aspect: 'landscape', split: .5, gap: 8, border: 12, background: '#ffffff', panels: Array.from({ length: 4 }, freshPanel), objects: [] };
   let activePhoto = 0, activeTab = 'layout', selectedObject = null;
   let undoStack = [], redoStack = [], editBefore = null, gestureBefore = null;
@@ -104,17 +104,16 @@
     $('gradientOptions').hidden = state.backgroundStyle !== 'gradient';
     $('patternOptions').hidden = !['dots', 'stripes'].includes(state.backgroundStyle);
     document.querySelectorAll('[data-background]').forEach(btn => btn.setAttribute('aria-pressed', btn.dataset.background === state.background));
-    for (const [id, value] of Object.entries({ backgroundStyle: state.backgroundStyle, backgroundSecond: state.backgroundSecond, gradientDirection: state.gradientDirection, patternSize: state.patternSize, aspect: state.aspect, split: Math.round(state.split * 100), gap: state.gap, border: state.border, background: state.background, zoom: Math.round(p.zoom * 100), effect: p.effect, effectStrength: Math.round(p.strength * 100) })) $(id).value = value;
+    for (const [id, value] of Object.entries({ backgroundStyle: state.backgroundStyle, backgroundSecond: state.backgroundSecond, gradientDirection: state.gradientDirection, patternSize: state.patternSize, aspect: state.aspect, split: Math.round(state.split * 100), gap: state.gap, border: state.border, background: state.background, zoom: Math.round(p.zoom * 100) })) $(id).value = value;
     $('splitValue').textContent = `${Math.round(state.split * 100)} : ${100 - Math.round(state.split * 100)}`;
     $('gapValue').textContent = state.gap;
     $('borderValue').textContent = state.border;
     $('zoomValue').textContent = `${Math.round(p.zoom * 100)}%`;
-    $('effectValue').textContent = `${Math.round(p.strength * 100)}%`;
     $('zoom').disabled = !p.asset;
     $('resetCrop').disabled = !p.asset; $('fitPhoto').disabled = !p.asset; $('zoom').min = Math.min(1, minimumZoom(p, rects()[activePhoto]) * 100);
     document.querySelectorAll('[data-nudge]').forEach(btn => btn.disabled = !p.asset);
     $('overlayCount').textContent = `${state.objects.length} / 12`;
-    ['addArrow','addText','addBubble','addSound','addStamp'].forEach(id=>$(id).disabled=state.objects.length>=12);
+    ['addText','addBubble','addStamp'].forEach(id=>$(id).disabled=state.objects.length>=12);
     if (!o && state.objects.length) { selectedObject = state.objects[state.objects.length - 1].id; }
     syncObject();
   }
@@ -126,14 +125,16 @@
     // Use textContent for user-entered text; never interpret it as markup.
     select.replaceChildren(...state.objects.map((item, i) => {
       const opt = document.createElement('option'); opt.value = item.id;
-      opt.textContent = `${i + 1}. ${item.type==='bubble' ? ((item.group?'連結・':'')+'吹き出し '+(item.text||'').replace(/\n/g,' ').slice(0,12)) : ({arrow:'矢印',stamp:'スタンプ',sound:'効果音文字'})[item.type] || item.text || '文字'}`;
+      opt.textContent = `${i + 1}. ${item.type==='bubble' ? ((item.group?'連結・':'')+'吹き出し '+(item.text||'').replace(/\n/g,' ').slice(0,12)) : ({stamp:'スタンプ'})[item.type] || item.text || '文字'}`;
       return opt;
     }));
     select.value = o.id;
-    const isText=['text','sound','bubble'].includes(o.type);
+    const isText=['text','bubble'].includes(o.type);
     $('textField').hidden = !isText; $('fontControls').hidden=!isText;
     $('bubbleControls').hidden=o.type!=='bubble'; $('stampControls').hidden=o.type!=='stamp';
-    $('outlineControls').hidden=!['text','sound','stamp'].includes(o.type);
+    $('textWritingControls').hidden=o.type!=='text'; $('textWriting').value=o.writing||'horizontal';
+    $('objectSizeControl').hidden=o.type==='bubble';
+    $('outlineControls').hidden=!['text','stamp'].includes(o.type);
     $('objectFont').value=o.font||'system';
     $('fontStatus').textContent=fontStates.get(o.font)==='loading'?'フォントを読み込み中…':fontStates.get(o.font)==='failed'?'フォントを取得できません。接続中に選び直してください。':'';
     $('stampSymbol').value=o.symbol||'star'; $('bubbleShape').value=o.shape||'oval'; $('bubbleTail').value=o.tail||'bottom';
@@ -152,7 +153,9 @@
     $('joinBubbles').disabled=!!o.group||!candidates.length;$('unlinkBubbles').hidden=!o.group;$('moveLinkedLabel').hidden=!o.group;
     $('bubbleLinkHint').textContent=o.group?'連結中。背景色・濃さ・輪郭線は2つ共通、文章と文字設定は個別です。':candidates.length?'相手を下に配置し、収まるよう調整します。接合部分の線は消えます。':'吹き出しをもう1つ追加すると連結できます。';
     $('bubblePadding').value=Math.round((o.padding??.03)*100); $('bubblePaddingValue').textContent=Math.round((o.padding??.03)*100)+'%';
-    $('bubbleRatio').value=Math.round((o.ratio||.65)*100); $('bubbleTextSize').value=Math.round((o.textScale||.04)*1000);
+    $('bubbleWidth').value=Math.round(o.size*200); $('bubbleHeight').value=Math.round((o.height||.48)*100);
+    const short=Math.min(...dimension());
+    $('bubbleWidthValue').textContent=Math.round(short*o.size*2)+' px'; $('bubbleHeightValue').textContent=Math.round(short*(o.height||.48))+' px'; $('bubbleTextSize').value=Math.round((o.textScale||.04)*1000);
     $('outlineColor').value=o.outlineColor||'#ffffff'; $('outlineWidth').value=Math.round((o.outline??.09)*100);
     if (document.activeElement !== $('textContent')) $('textContent').value = o.text || '';
     $('objectSize').value = Math.round(o.size * 100);
@@ -212,34 +215,6 @@
     c.fillStyle = index ? '#809078' : '#947bbd'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.font = `700 ${unit * .13}px -apple-system, sans-serif`; c.fillText(`0${index + 1}`, r.x + r.w / 2, r.y + r.h * .42);
     c.font = `500 ${unit * .043}px -apple-system, sans-serif`; c.fillText('ここに、あなたの画像を。', r.x + r.w / 2, r.y + r.h * .56);
   }
-  function comicEffect(c, r, panel) {
-    if (panel.effect === 'none') return;
-    c.save(); c.globalAlpha = panel.strength; c.strokeStyle = '#171820'; c.fillStyle = '#171820';
-    const short = Math.min(r.w, r.h), cx = r.x + r.w / 2, cy = r.y + r.h / 2;
-    if (panel.effect === 'focus') {
-      for (let i = 0; i < 66; i++) {
-        const angle = i * Math.PI * 2 / 66, spread = .0035 + (i % 4) * .001;
-        const inner = short * (.23 + ((i * 17) % 13) / 80), outer = Math.hypot(r.w, r.h);
-        c.beginPath(); c.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
-        c.lineTo(cx + Math.cos(angle - spread) * outer, cy + Math.sin(angle - spread) * outer);
-        c.lineTo(cx + Math.cos(angle + spread) * outer, cy + Math.sin(angle + spread) * outer); c.closePath(); c.fill();
-      }
-    } else if (panel.effect === 'speed') {
-      for (let i = 0; i < 40; i++) {
-        const y = r.y + r.h * ((i * 23 % 41) / 41), len = r.w * (.13 + (i % 6) * .05), left = i % 2 === 0;
-        c.lineWidth = short * (.0014 + (i % 3) * .0012); c.beginPath();
-        const x = left ? r.x : r.x + r.w; c.moveTo(x, y); c.lineTo(x + (left ? len : -len), y - len * .12); c.stroke();
-      }
-    } else if (panel.effect === 'sparkle') {
-      const points = [[.15,.18,.07],[.79,.15,.05],[.86,.64,.07],[.18,.79,.045],[.64,.86,.04],[.08,.48,.024],[.6,.11,.025],[.93,.38,.03]];
-      points.forEach(([x, y, size]) => {
-        const px = r.x + r.w * x, py = r.y + r.h * y, s = short * size;
-        c.beginPath(); c.moveTo(px, py - s); c.quadraticCurveTo(px + s * .2, py - s * .2, px + s * .65, py); c.quadraticCurveTo(px + s * .2, py + s * .2, px, py + s); c.quadraticCurveTo(px - s * .2, py + s * .2, px - s * .65, py); c.quadraticCurveTo(px - s * .2, py - s * .2, px, py - s); c.closePath();
-        c.strokeStyle = '#463626'; c.lineWidth = short * .003; c.stroke(); c.fillStyle = '#fff4a6'; c.fill();
-      });
-    }
-    c.restore();
-  }
   const FONT_DEFS = {
     zen: { family: 'PairZen', file: 'ZenKakuGothicNew-Regular.ttf' },
     maru: { family: 'PairMaru', file: 'ZenMaruGothic-Regular.ttf' },
@@ -274,17 +249,20 @@
   }
   function objectMetrics(c, o) {
     const [w,h]=dimension(), short=Math.min(w,h);
-    if(o.type==='arrow')return {w:short*o.size*2,h:short*o.size*.65};
     if(o.type==='stamp')return {w:short*o.size,h:short*o.size};
     if(o.type==='bubble') {
-      const bw=short*o.size*2,bh=bw*(o.ratio||.65),tail=o.tail==='none'?0:Math.min(bw,bh)*.28;
+      const bw=short*o.size*2,bh=short*o.height,tail=o.tail==='none'?0:Math.min(bw,bh)*.28;
       const rough=o.shape==='organic'?(o.roughness??.04):0;
       const layout=bubbleTextLayout(c,o,bw,bh);
       return {w:bw*(1+rough*1.6)+(['left','right'].includes(o.tail)?tail*2:0),h:bh*(1+rough*1.6)+(['top','bottom'].includes(o.tail)?tail*2:0),bw,bh,tail,...layout};
     }
     const fontSize=short*o.size*.38;
     c.font=fontSpec(o,fontSize);
-    const lines=(o.text||' ').split('\n');
+    if(o.writing==='vertical') {
+      const columns=(o.text||' ').normalize('NFC').split('\n').map(line=>Array.from(line)),rows=Math.max(1,...columns.map(col=>col.length));
+      return {w:Math.max(fontSize,columns.length*fontSize*1.35),h:rows*fontSize*1.12,fontSize,columns,vertical:true};
+    }
+    const lines=(o.text||' ').normalize('NFC').split('\n');
     return {w:Math.max(fontSize,...lines.map(line=>c.measureText(line).width)),h:fontSize*1.35*lines.length,fontSize,lines};
   }
   function bubblePath(c,o,m) {
@@ -324,10 +302,7 @@
     const [w,h]=dimension();c.save();const m=objectMetrics(c,o);
     c.translate(w*o.x,h*o.y);c.rotate(o.angle*Math.PI/180);
     c.fillStyle=o.color;c.strokeStyle=o.outlineColor||'#ffffff';c.lineJoin='round';c.lineCap='round';
-    if(o.type==='arrow') {
-      const shaft=m.h*.24,head=m.w*.26;
-      c.beginPath();c.moveTo(-m.w/2,-shaft/2);c.lineTo(m.w/2-head,-shaft/2);c.lineTo(m.w/2-head,-m.h/2);c.lineTo(m.w/2,0);c.lineTo(m.w/2-head,m.h/2);c.lineTo(m.w/2-head,shaft/2);c.lineTo(-m.w/2,shaft/2);c.closePath();c.lineWidth=Math.max(3,m.h*.065);c.stroke();c.fill();
-    } else if(o.type==='stamp') {
+    if(o.type==='stamp') {
       stampPath(c,o,m);c.lineWidth=Math.max(2,m.w*(o.outline??.06));if(o.outline!==0)c.stroke();c.fill();
     } else if(o.type==='bubble') {
       bubblePath(c,o,m);c.fillStyle=o.fill||'#e2e2e2';c.strokeStyle=o.borderColor||'#111111';c.lineWidth=(o.borderWidth??2)*Math.min(w,h)/1200;
@@ -335,7 +310,7 @@
       drawBubbleText(c,o,m);
     } else {
       c.font=fontSpec(o,m.fontSize);c.textAlign='center';c.textBaseline='middle';c.lineWidth=Math.max(1,m.fontSize*(o.outline??.09));
-      m.lines.forEach((line,i)=>{const y=(i-(m.lines.length-1)/2)*m.fontSize*1.35;if(o.outline!==0)c.strokeText(line,0,y);c.fillText(line,0,y);});
+      drawLettering(m,(text,x,y,turn=0)=>{c.save();c.translate(x,y);if(turn)c.rotate(turn);if(o.outline!==0)c.strokeText(text,0,0);c.fillText(text,0,0);c.restore();});
     }
     if(editor&&activeTab==='decor'&&o.id===selectedObject) {c.strokeStyle='#7254df';c.lineWidth=Math.min(w,h)*.0025;c.setLineDash([10,6]);c.strokeRect(-m.w/2-9,-m.h/2-9,m.w+18,m.h+18);}
     c.restore();
@@ -387,10 +362,7 @@
     c.restore();
     return {fontSize,lines,columns,vertical};
   }
-  function drawBubbleText(c,o,m) {
-    c.save();c.globalAlpha=1;c.font=fontSpec(o,m.fontSize);c.fillStyle=o.color||'#111111';
-    c.strokeStyle='#ffffff';c.lineWidth=Math.max(1,m.fontSize*.15);c.lineJoin='round';c.textAlign='center';c.textBaseline='middle';
-    const glyph=(text,x,y,turn=0)=>{c.save();c.translate(x,y);if(turn)c.rotate(turn);if(o.textHalo!==false)c.strokeText(text,0,0);c.fillText(text,0,0);c.restore();};
+  function drawLettering(m,glyph) {
     if(m.vertical) {
       const step=m.fontSize*1.12,cols=m.columns,rows=Math.max(0,...cols.map(col=>col.length));
       cols.forEach((col,i)=>{
@@ -404,6 +376,12 @@
         });
       });
     } else m.lines.forEach((line,i)=>glyph(line,0,(i-(m.lines.length-1)/2)*m.fontSize*1.35));
+  }
+  function drawBubbleText(c,o,m) {
+    c.save();c.globalAlpha=1;c.font=fontSpec(o,m.fontSize);c.fillStyle=o.color||'#111111';
+    c.strokeStyle='#ffffff';c.lineWidth=Math.max(1,m.fontSize*.15);c.lineJoin='round';c.textAlign='center';c.textBaseline='middle';
+    const glyph=(text,x,y,turn=0)=>{c.save();c.translate(x,y);if(turn)c.rotate(turn);if(o.textHalo!==false)c.strokeText(text,0,0);c.fillText(text,0,0);c.restore();};
+    drawLettering(m,glyph);
     c.restore();
   }
   function bubbleStyle(o,key,value) {
@@ -431,7 +409,7 @@
       const distance=(m1.bh+m2.bh)/2-Math.min(m1.bh,m2.bh)*.12;
       second.x=first.x-Math.sin(a)*distance/w;second.y=first.y+Math.cos(a)*distance/h;
       const members=[first,second],b=bubbleBounds(ctx,members),scale=Math.min(1,(w-40)/(b.right-b.left),(h-40)/(b.bottom-b.top));
-      if(scale<1) {second.x=first.x+(second.x-first.x)*scale;second.y=first.y+(second.y-first.y)*scale;members.forEach(o=>o.size*=scale);}
+      if(scale<1) {second.x=first.x+(second.x-first.x)*scale;second.y=first.y+(second.y-first.y)*scale;members.forEach(o=>{o.size*=scale;o.height*=scale;});}
       const fit=bubbleBounds(ctx,members);
       const dx=fit.left<20?20-fit.left:fit.right>w-20?w-20-fit.right:0;
       const dy=fit.top<20?20-fit.top:fit.bottom>h-20?h-20-fit.bottom:0;
@@ -514,7 +492,7 @@
       c.save(); c.beginPath(); c.rect(r.x, r.y, r.w, r.h); c.clip();
       const p = state.panels[i], g = geometry(p, r);
       if (g) c.drawImage(g.img, g.x, g.y, g.w, g.h); else if (editor) placeholder(c, r, i);
-      if (g) comicEffect(c, r, p);
+
       c.restore();
       if (editor && activeTab === 'crop' && activePhoto === i && g) {
         c.save(); c.strokeStyle = '#7254df'; c.lineWidth = Math.min(w, h) * .004; c.strokeRect(r.x + c.lineWidth / 2, r.y + c.lineWidth / 2, r.w - c.lineWidth, r.h - c.lineWidth); c.restore();
@@ -635,8 +613,6 @@
   bindControl('border', value => { state.border = Number(value); });
   bindControl('background', value => { state.background = value; });
   bindControl('zoom', value => { state.panels[activePhoto].zoom = Number(value) / 100; });
-  bindControl('effectStrength', value => { state.panels[activePhoto].strength = Number(value) / 100; });
-  $('effect').addEventListener('change', () => action(() => { state.panels[activePhoto].effect = $('effect').value; }));
   $('fitPhoto').addEventListener('click', () => action(() => {
     const p=state.panels[activePhoto],r=rects()[activePhoto],img=assets.get(p.asset); if(!img)return;
     Object.assign(p,{zoom:Math.min(r.w/img.width,r.h/img.height)/Math.max(r.w/img.width,r.h/img.height),x:.5,y:.5});
@@ -660,24 +636,21 @@
   function addObject(type) {
     if (state.objects.length >= 12) { toast('飾りは合計12個まで追加できます'); return; }
     action(() => {
-      const o = { id: 'o' + nextId++, type, x: .5, y: .5, size: type === 'arrow' ? .25 : .16, angle: type === 'arrow' ? -35 : 0, color: type === 'arrow' ? '#ee5545' : '#252635', text: type === 'text' ? 'ここに文字' : '' };
+      const o = { id: 'o' + nextId++, type, x: .5, y: .5, size: .16, angle: 0, color: '#252635', writing: 'horizontal', text: type === 'text' ? 'ここに文字' : '' };
       Object.assign(o,{font:'system',outlineColor:'#ffffff',outline:.09});
-      if(type==='bubble')Object.assign(o,{size:.2,text:'ここにセリフ',font:'zen',shape:'organic',tail:'none',ratio:1.2,textScale:.04,fill:'#e2e2e2',fillOpacity:.6,borderColor:'#111111',borderWidth:2,roughness:.04,writing:'vertical',padding:.03,textHalo:true,color:'#111111',moveTogether:true});
-      if(type==='sound')Object.assign(o,{size:.23,text:'ドン！',font:'zen',color:'#ed493e',angle:-12,outline:.16});
+      if(type==='bubble')Object.assign(o,{size:.2,text:'ここにセリフ',font:'zen',shape:'organic',tail:'none',height:.48,textScale:.04,fill:'#e2e2e2',fillOpacity:.6,borderColor:'#111111',borderWidth:2,roughness:.04,writing:'vertical',padding:.03,textHalo:true,color:'#111111',moveTogether:true});
       if(type==='stamp')Object.assign(o,{size:.2,symbol:'star',color:'#f5bf34',outline:.06});
       state.objects.push(o); selectedObject = o.id;
     });
-    if (['text','bubble','sound'].includes(type)) { $('textContent').focus(); $('textContent').select(); }
+    if (['text','bubble'].includes(type)) { $('textContent').focus(); $('textContent').select(); }
     const o=object(); if(o&&FONT_DEFS[o.font])ensureFont(o.font).then(update).catch(()=>update());
   }
-  $('addArrow').addEventListener('click', () => addObject('arrow'));
   $('addText').addEventListener('click', () => addObject('text'));
   $('addBubble').addEventListener('click',()=>addObject('bubble'));
-  $('addSound').addEventListener('click',()=>addObject('sound'));
   $('addStamp').addEventListener('click',()=>addObject('stamp'));
   bindControl('mainWidth',v=>{state.mainWidth=Number(v)/100;});
   $('flipSide').addEventListener('click',()=>action(()=>{state.layout=state.layout==='right-main'?'left-main':'right-main';}));
-  const objectSelects={objectFont:'font',stampSymbol:'symbol',bubbleShape:'shape',bubbleTail:'tail',bubbleWriting:'writing'};
+  const objectSelects={objectFont:'font',stampSymbol:'symbol',bubbleShape:'shape',bubbleTail:'tail',bubbleWriting:'writing',textWriting:'writing'};
   for(const [id,key] of Object.entries(objectSelects))$(id).addEventListener('change',()=>{
     const value=$(id).value;action(()=>{if(object())object()[key]=value;});
     if(key==='font')ensureFont(value).then(update).catch(()=>{toast('フォントを読み込めませんでした。接続中に再度お試しください。');update();});
@@ -693,12 +666,13 @@
   $('unlinkBubbles').addEventListener('click',()=>action(()=>unlinkBubble(object())));
   bindControl('outlineColor',v=>{if(object())object().outlineColor=v;});
   bindControl('outlineWidth',v=>{if(object())object().outline=Number(v)/100;});
-  bindControl('bubbleRatio',v=>{if(object())object().ratio=Number(v)/100;});
+  bindControl('bubbleWidth',v=>{if(object()?.type==='bubble')object().size=clamp(Number(v)/200,.05,.6);});
+  bindControl('bubbleHeight',v=>{if(object()?.type==='bubble')object().height=clamp(Number(v)/100,.1,2.4);});
   bindControl('bubblePadding',v=>{if(object())object().padding=clamp(Number(v)/100,0,.25);});
   bindControl('bubbleTextSize',v=>{if(object())object().textScale=Number(v)/1000;});
   $('overlaySelect').addEventListener('change', () => { finishEdit(); selectedObject = $('overlaySelect').value; update(); });
   bindControl('textContent', value => { if (object()) object().text = value.slice(0, 80); });
-  bindControl('objectSize', value => { if (object()) object().size = Number(value) / 100; });
+  bindControl('objectSize', value => { if (object() && object().type!=='bubble') object().size = Number(value) / 100; });
   bindControl('objectAngle', value => { if (object()) object().angle = Number(value); });
   bindControl('objectX', value => { if(object())moveDecoration(object(),Number(value)/100,object().y); });
   bindControl('objectY', value => { if(object())moveDecoration(object(),object().x,Number(value)/100); });
@@ -748,7 +722,7 @@
     if (!gesture) return;
     const pts = [...pointers.values()], p = state.panels[gesture.index];
     gesture.start = pts[0]; gesture.panel = copy(p);
-    if (gesture.type === 'object') {gesture.origin=copy(object());gesture.groupOrigins=(object().group&&object().moveTogether!==false?bubbleMembers(object()):[object()]).map(item=>({id:item.id,x:item.x,y:item.y,size:item.size,textScale:item.textScale}));}
+    if (gesture.type === 'object') {gesture.origin=copy(object());gesture.groupOrigins=(object().group&&object().moveTogether!==false?bubbleMembers(object()):[object()]).map(item=>({id:item.id,x:item.x,y:item.y,size:item.size,height:item.height,textScale:item.textScale}));}
     if (pts.length >= 2) {
       gesture.distance = Math.max(1, Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y));
       gesture.mid = { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
@@ -786,14 +760,14 @@
       if(pts.length===2) {
         const distance=Math.hypot(pts[1].x-pts[0].x,pts[1].y-pts[0].y);
         const origins=gesture.groupOrigins;
-        const low=Math.max(...origins.map(b=>Math.max(.05/b.size,b.textScale?.015/b.textScale:0)));
-        const high=Math.min(...origins.map(b=>Math.min(.6/b.size,b.textScale?.08/b.textScale:Infinity)));
+        const low=Math.max(...origins.map(b=>Math.max(.05/b.size,b.height?.1/b.height:0,b.textScale?.015/b.textScale:0)));
+        const high=Math.min(...origins.map(b=>Math.min(.6/b.size,b.height?2.4/b.height:Infinity,b.textScale?.08/b.textScale:Infinity)));
         const factor=clamp(distance/gesture.distance,low,high);
         const mid={x:(pts[0].x+pts[1].x)/2,y:(pts[0].y+pts[1].y)/2};
         const positions=origins.map(b=>({x:(mid.x+(b.x*w-gesture.mid.x)*factor)/w,y:(mid.y+(b.y*h-gesture.mid.y)*factor)/h}));
         const dx=Math.max(0,-Math.min(...positions.map(p=>p.x)))+Math.min(0,1-Math.max(...positions.map(p=>p.x)));
         const dy=Math.max(0,-Math.min(...positions.map(p=>p.y)))+Math.min(0,1-Math.max(...positions.map(p=>p.y)));
-        origins.forEach((b,i)=>{const item=state.objects.find(v=>v.id===b.id);if(!item)return;item.size=b.size*factor;item.x=positions[i].x+dx;item.y=positions[i].y+dy;if(b.textScale)item.textScale=b.textScale*factor;});
+        origins.forEach((b,i)=>{const item=state.objects.find(v=>v.id===b.id);if(!item)return;item.size=b.size*factor;if(b.height)item.height=b.height*factor;item.x=positions[i].x+dx;item.y=positions[i].y+dy;if(b.textScale)item.textScale=b.textScale*factor;});
       } else moveDecoration(o,gesture.origin.x+(pts[0].x-gesture.start.x)/w,gesture.origin.y+(pts[0].y-gesture.start.y)/h,gesture.groupOrigins);
     } else {
       const p = state.panels[gesture.index], r = rects()[gesture.index];
@@ -825,7 +799,7 @@
     finishEdit(); if (state.panels.slice(0, state.photoCount).some(p => !p.asset) || loading || exporting) return;
     exporting = true; sync();
     try {
-      await Promise.all(state.objects.filter(o=>['text','sound','bubble'].includes(o.type)).map(o=>ensureFont(o.font)));
+      await Promise.all(state.objects.filter(o=>['text','bubble'].includes(o.type)).map(o=>ensureFont(o.font)));
       const out = document.createElement('canvas'); [out.width, out.height] = dimension();
       render(out.getContext('2d'), out.width, out.height, false);
       const blob = await new Promise((resolve, reject) => out.toBlob(value => value ? resolve(value) : reject(new Error('Export failed')), 'image/png'));
